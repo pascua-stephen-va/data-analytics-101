@@ -2267,9 +2267,6 @@
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span id="homeLabStatusText">4 Active Activities</span>
         </div>
-        <button id="btnHeaderResumeLab" onclick="openActivity('sql_around_the_world')" class="hidden m3-btn m3-btn-filled px-4 py-1.5 text-xs font-bold gap-1.5">
-          <i class="ph ph-play-fill text-[11px]"></i> Resume Lab
-        </button>
       </div>
     </header>
 
@@ -5847,7 +5844,6 @@
       const badgeText = document.getElementById('homeCardBadgeText');
       const badgeContainer = document.getElementById('homeCardProgressBadge');
       const launchBtnText = document.getElementById('homeLaunchBtnText');
-      const btnHeaderResume = document.getElementById('btnHeaderResumeLab');
       const homeStatus = document.getElementById('homeLabStatusText');
 
       if (bar) bar.style.width = `${pct}%`;
@@ -5855,14 +5851,6 @@
 
       if (homeStatus) {
         homeStatus.textContent = '4 Active Activities';
-      }
-
-      if (btnHeaderResume) {
-        if (labStarted || totalAnswered > 0) {
-          btnHeaderResume.classList.remove('hidden');
-        } else {
-          btnHeaderResume.classList.add('hidden');
-        }
       }
 
       if (launchBtnText) {

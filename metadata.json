@@ -1,0 +1,8 @@
+{
+  "name": "Data Analytics 101",
+  "description": "An interactive, Material 3-styled web lab for mastering SQL fundamentals through guided global-themed data analytics exercises.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

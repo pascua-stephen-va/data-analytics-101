@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "cp -f excel-activity.js ordering-limiting.js movies-activity.js lesson-plans.js favicon.svg public/ && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

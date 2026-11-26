@@ -9,12 +9,12 @@
   <meta property="og:description" content="Interactive data analytics laboratory curriculum featuring Module 1: Transforming Data with Excel, Module 2: SQL Around the World, Module 3: Ordering and Limiting, and Module 4: Successful Movies." />
 
   <!-- Website Web Icon / Favicon -->
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="alternate icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='64' fill='%230e172a'/%3E%3Crect x='6' y='6' width='244' height='244' rx='58' fill='none' stroke='%233b82f6' stroke-width='8' stroke-opacity='0.45'/%3E%3Cg fill='none' stroke='%2338bdf8' stroke-linecap='round' stroke-linejoin='round' stroke-width='18'%3E%3Cellipse cx='128' cy='80' rx='74' ry='30'/%3E%3Cpath d='M54,80 v48 c0,16.57 33.13,30 74,30 s74,-13.43 74,-30 V80'/%3E%3Cpath d='M54,128 v48 c0,16.57 33.13,30 74,30 s74,-13.43 74,-30 V128'/%3E%3C/g%3E%3Ccircle cx='178' cy='80' r='4.5' fill='%2393c5fd'/%3E%3Ccircle cx='178' cy='128' r='4.5' fill='%2393c5fd'/%3E%3Ccircle cx='178' cy='176' r='4.5' fill='%2393c5fd'/%3E%3C/svg%3E" />
-  <link rel="apple-touch-icon" href="./favicon.svg" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
 
-  <!-- Bundled Tailwind CSS (Compiled by Vite) -->
-  <link rel="stylesheet" href="/src/index.css" />
+  <!-- Tailwind CSS CDN v3 -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Google Fonts: Plus Jakarta Sans (Headings), Inter (Body), DM Sans (Interactive/Accent) & JetBrains Mono (Code) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -31,21 +31,69 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            body: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            display: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            heading: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            accent: ['"DM Sans"', 'system-ui', 'sans-serif'],
+            ui: ['"DM Sans"', '"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          letterSpacing: {
+            'tight-headline': '-0.03em',
+            'tight-title': '-0.02em',
+            'interactive': '0.015em',
+          },
+          lineHeight: {
+            'comfortable': '1.6',
+            'body': '1.6',
+          },
+          colors: {
+            m3: {
+              primary: '#006d42',
+              onPrimary: '#ffffff',
+              primaryContainer: '#8ef7bc',
+              onPrimaryContainer: '#002111',
+              surface: '#fbfdf8',
+              surfaceDim: '#d8dad5',
+              surfaceContainer: '#edf0ec',
+              surfaceContainerLow: '#f3f6f1',
+              surfaceContainerHigh: '#e7eae6',
+              surfaceContainerHighest: '#e1e4e0',
+              outline: '#717972',
+              outlineVariant: '#c1c9bf',
+            },
+            excel: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#107c41',
+              800: '#0c5c30',
+              900: '#073e20',
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <script>
     // Immediate Theme Initialization (Prevents Flash of Wrong Theme)
     (function () {
       try {
         var mode = localStorage.getItem('da101_theme_mode');
-        var source = 'system';
-        if (mode === 'light' || mode === 'dark') {
-          source = mode;
-        } else if (mode !== 'auto' && mode !== 'system') {
+        if (!mode) {
           var legacy = localStorage.getItem('da101_theme');
-          if (legacy === 'light' || legacy === 'dark') {
-            source = legacy;
-          }
+          mode = (legacy === 'light' || legacy === 'dark') ? legacy : 'auto';
         }
-        var effective = source;
-        if (source === 'system') {
+        var effective = mode;
+        if (mode === 'auto') {
           var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           effective = prefersDark ? 'dark' : 'light';
         }
@@ -57,7 +105,6 @@
           document.documentElement.classList.add('light');
         }
         document.documentElement.setAttribute('data-theme', effective);
-        document.documentElement.setAttribute('data-theme-source', source);
       } catch (e) {
         console.warn('Initial theme detection error:', e);
       }
@@ -194,7 +241,8 @@
     .m3-tab-pill,
     .m3-tab-pill-active,
     .m3-tab-pill-inactive,
-    .theme-toggle-btn,
+    .theme-seg-btn,
+    .theme-auto-badge,
     [role="button"],
     [role="tab"],
     nav a,
@@ -248,12 +296,6 @@
     .m3-card-expressive:active {
       transform: translateY(-1px) scale(0.985);
       transition-duration: 0.12s;
-    }
-    .m3-card-expressive[data-no-ripple="true"]:hover,
-    .m3-card-expressive[data-no-ripple="true"]:active {
-      transform: none;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
-      border-color: rgb(30 41 59);
     }
 
     /* Universal M3 Hover React */
@@ -742,15 +784,146 @@
     }
 
     /* ========================================================= */
-    /* THEME TOGGLE MOUNT SLOT (Zero-CLS Placeholder)            */
+    /* THEME 3-WAY SEGMENTED CONTROL (Light / Dark / Auto)       */
     /* ========================================================= */
-    .theme-toggle-mount {
+    .theme-segmented-control {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      width: 2.25rem;
-      height: 2.25rem;
-      flex-shrink: 0;
+      padding: 3px;
+      gap: 3px;
+      border-radius: 9999px;
+      user-select: none;
+      transition: all 0.25s ease;
+      background-color: #061325;
+      border: 1px solid #143564;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .theme-seg-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      background-color: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+      line-height: 1.25;
+    }
+    .theme-seg-btn:hover {
+      color: #f1f5f9;
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+    .theme-seg-btn:active {
+      transform: scale(0.97);
+    }
+
+    /* Active state (matches the user's reference image exactly!) */
+    .theme-seg-btn.active {
+      background-color: #0e325d !important;
+      border-color: rgba(59, 130, 246, 0.45) !important;
+      color: #ffffff !important;
+      font-weight: 700 !important;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    }
+    .theme-seg-btn.active i {
+      color: #ffffff !important;
+    }
+
+    /* Badge inside Auto button */
+    .theme-auto-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background-color: #081a33;
+      color: #93c5fd;
+      border: 1px solid #1a4270;
+      line-height: 1.2;
+      margin-left: 2px;
+      transition: all 0.2s ease;
+    }
+    .theme-seg-btn.active .theme-auto-badge {
+      background-color: #071933;
+      border-color: #255894;
+      color: #bfdbfe;
+    }
+
+    /* Light Mode Overrides for the Segmented Control */
+    html:not(.dark) .theme-segmented-control,
+    html.light .theme-segmented-control {
+      background-color: #e2e8f0;
+      border-color: #cbd5e1;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+    html:not(.dark) .theme-seg-btn,
+    html.light .theme-seg-btn {
+      color: #475569;
+    }
+    html:not(.dark) .theme-seg-btn:hover,
+    html.light .theme-seg-btn:hover {
+      color: #0f172a;
+      background-color: rgba(255, 255, 255, 0.6);
+    }
+    html:not(.dark) .theme-seg-btn.active,
+    html.light .theme-seg-btn.active {
+      background-color: #ffffff !important;
+      border-color: #cbd5e1 !important;
+      color: #0f172a !important;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+    html:not(.dark) .theme-seg-btn.active i,
+    html.light .theme-seg-btn.active i {
+      color: #0284c7 !important;
+    }
+    html:not(.dark) .theme-auto-badge,
+    html.light .theme-auto-badge {
+      background-color: #f1f5f9;
+      color: #334155;
+      border-color: #cbd5e1;
+    }
+    html:not(.dark) .theme-seg-btn.active .theme-auto-badge,
+    html.light .theme-seg-btn.active .theme-auto-badge {
+      background-color: #f8fafc;
+      color: #1e293b;
+      border-color: #94a3b8;
+    }
+
+    /* Excel / Ordering Header Variations */
+    .excel-theme-control {
+      background-color: #062215 !important;
+      border-color: #0d5431 !important;
+    }
+    .excel-theme-control .theme-seg-btn.active {
+      background-color: #0f6139 !important;
+      border-color: #107c41 !important;
+    }
+    .excel-theme-control .theme-auto-badge {
+      background-color: #041a10;
+      color: #a7f3d0;
+      border-color: #0f5132;
+    }
+
+    .ordering-theme-control {
+      background-color: #0d0f2b !important;
+      border-color: #2e3470 !important;
+    }
+    .ordering-theme-control .theme-seg-btn.active {
+      background-color: #24296b !important;
+      border-color: #4338ca !important;
+    }
+    .ordering-theme-control .theme-auto-badge {
+      background-color: #080a1f;
+      color: #c7d2fe;
+      border-color: #232759;
     }
 
     /* Global Body Backgrounds */
@@ -2121,13 +2294,29 @@
       </div>
 
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
-        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
+        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
+        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
+          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
+            <i class="ph ph-sun text-sm"></i>
+            <span>Light</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
+            <i class="ph ph-moon text-sm"></i>
+            <span>Dark</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
+            <i class="ph ph-desktop text-sm"></i>
+            <span>Auto</span>
+          </button>
+        </div>
 
         <div class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-xs font-semibold text-slate-300 shadow-inner">
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span id="homeLabStatusText">4 Active Activities</span>
         </div>
+        <button id="btnHeaderResumeLab" onclick="openActivity('sql_around_the_world')" class="hidden m3-btn m3-btn-filled px-4 py-1.5 text-xs font-bold gap-1.5">
+          <i class="ph ph-play-fill text-[11px]"></i> Resume Lab
+        </button>
       </div>
     </header>
 
@@ -2248,7 +2437,7 @@
         </div>
 
         <!-- Student Information & Academic Credentials (Moved to Home Selection) -->
-        <div id="studentCredentialsCard" data-no-ripple="true" class="m3-card-expressive bg-[#151c2a] border border-slate-800 p-5 md:p-6 shadow-xl space-y-4 rounded-[24px]">
+        <div class="m3-card-expressive bg-[#151c2a] border border-slate-800 p-5 md:p-6 shadow-xl space-y-4 rounded-[24px]">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
           <div class="flex items-center gap-3">
             <div class="w-9 h-9 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
@@ -2645,6 +2834,11 @@
             <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <span class="font-extrabold text-sm text-slate-900 dark:text-slate-100">&copy; 2026 Stephen Pascua</span>
               <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Copyright Holder</span>
+              <a href="https://forms.gle/2K5X9GqJAKWDUz4C9" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/80 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition shadow-2xs">
+                <i class="ph ph-chat-teardrop-dots-fill text-amber-600 dark:text-amber-400 text-xs"></i>
+                <span>Give Feedback</span>
+                <i class="ph ph-arrow-square-out text-[10px] opacity-75"></i>
+              </a>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
               Data Analytics 101 &bull; Virtual Assistant Services Level III Certification Preparation Platform
@@ -2717,8 +2911,21 @@
 
     <!-- Progress & Controls -->
     <div class="flex items-center space-x-2 sm:space-x-3">
-      <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
-      <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
+      <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
+      <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
+        <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
+          <i class="ph ph-sun text-sm"></i>
+          <span>Light</span>
+        </button>
+        <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
+          <i class="ph ph-moon text-sm"></i>
+          <span>Dark</span>
+        </button>
+        <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
+          <i class="ph ph-desktop text-sm"></i>
+          <span>Auto</span>
+        </button>
+      </div>
 
       <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
         <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -3101,8 +3308,21 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
-        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="excel"></div>
+        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
+        <div class="theme-segmented-control excel-theme-control" role="radiogroup" aria-label="Theme mode selection">
+          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
+            <i class="ph ph-sun text-sm"></i>
+            <span>Light</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
+            <i class="ph ph-moon text-sm"></i>
+            <span>Dark</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
+            <i class="ph ph-desktop text-sm"></i>
+            <span>Auto</span>
+          </button>
+        </div>
 
         <div class="flex items-center space-x-2.5 bg-emerald-950/70 border border-emerald-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-emerald-200/80 font-medium">Progress</span>
@@ -3730,8 +3950,21 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
-        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="ordering"></div>
+        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
+        <div class="theme-segmented-control ordering-theme-control" role="radiogroup" aria-label="Theme mode selection">
+          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
+            <i class="ph ph-sun text-sm"></i>
+            <span>Light</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
+            <i class="ph ph-moon text-sm"></i>
+            <span>Dark</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
+            <i class="ph ph-desktop text-sm"></i>
+            <span>Auto</span>
+          </button>
+        </div>
 
         <div class="flex items-center space-x-2.5 bg-indigo-950/70 border border-indigo-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-indigo-200/80 font-medium">Progress</span>
@@ -3889,8 +4122,21 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
-        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
+        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
+        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
+          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
+            <i class="ph ph-sun text-sm"></i>
+            <span>Light</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
+            <i class="ph ph-moon text-sm"></i>
+            <span>Dark</span>
+          </button>
+          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
+            <i class="ph ph-desktop text-sm"></i>
+            <span>Auto</span>
+          </button>
+        </div>
 
         <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -4730,7 +4976,122 @@
   </div>
 
 
-  <!-- Theme controller & animated toggle buttons are mounted via /src/main.tsx -->
+  <script>
+    // =========================================================================
+    // THEME CONTROLLER (3-Way: Light / Dark / Auto with Live System Synchronization)
+    // =========================================================================
+    (function () {
+      function getSystemTheme() {
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+
+      function getStoredMode() {
+        try {
+          var mode = localStorage.getItem('da101_theme_mode');
+          if (mode === 'light' || mode === 'dark' || mode === 'auto') {
+            return mode;
+          }
+          var legacy = localStorage.getItem('da101_theme');
+          if (legacy === 'light' || legacy === 'dark') {
+            return legacy;
+          }
+          return 'auto';
+        } catch (e) {
+          return 'auto';
+        }
+      }
+
+      function resolveEffectiveTheme(mode) {
+        if (mode === 'light' || mode === 'dark') {
+          return mode;
+        }
+        return getSystemTheme();
+      }
+
+      function updateControlsUI(activeMode) {
+        // Update active states on segmented buttons across all headers
+        var controls = document.querySelectorAll('.theme-segmented-control');
+        controls.forEach(function (control) {
+          var buttons = control.querySelectorAll('.theme-seg-btn');
+          buttons.forEach(function (btn) {
+            var btnMode = btn.getAttribute('data-theme-btn');
+            if (btnMode === activeMode) {
+              btn.classList.add('active');
+              btn.setAttribute('aria-checked', 'true');
+            } else {
+              btn.classList.remove('active');
+              btn.setAttribute('aria-checked', 'false');
+            }
+          });
+        });
+      }
+
+      function applyThemeMode(mode) {
+        var effectiveTheme = resolveEffectiveTheme(mode);
+        var isDark = effectiveTheme === 'dark';
+
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+
+        updateControlsUI(mode);
+
+        try {
+          window.dispatchEvent(new CustomEvent('appthemechange', {
+            detail: { mode: mode, effectiveTheme: effectiveTheme, isDark: isDark }
+          }));
+          if (typeof handleSQLInput === 'function') handleSQLInput();
+          if (typeof window.handleOrderingSQLInput === 'function') window.handleOrderingSQLInput();
+          if (typeof window.handleMoviesSQLInput === 'function') window.handleMoviesSQLInput();
+        } catch (e) {}
+      }
+
+      window.setAppThemeMode = function (mode) {
+        if (mode !== 'light' && mode !== 'dark' && mode !== 'auto') mode = 'auto';
+        try {
+          localStorage.setItem('da101_theme_mode', mode);
+          localStorage.setItem('da101_theme', mode === 'auto' ? getSystemTheme() : mode);
+        } catch (e) {}
+        applyThemeMode(mode);
+      };
+
+      // Backward compatibility toggle: cycles light -> dark -> auto -> light
+      window.toggleAppTheme = function () {
+        var currentMode = getStoredMode();
+        var nextMode = currentMode === 'light' ? 'dark' : (currentMode === 'dark' ? 'auto' : 'light');
+        window.setAppThemeMode(nextMode);
+      };
+
+      // Listen to OS / Browser system theme changes in real time
+      if (window.matchMedia) {
+        var mql = window.matchMedia('(prefers-color-scheme: dark)');
+        var onSystemChange = function () {
+          var currentMode = getStoredMode();
+          applyThemeMode(currentMode);
+        };
+        if (mql.addEventListener) {
+          mql.addEventListener('change', onSystemChange);
+        } else if (mql.addListener) {
+          mql.addListener(onSystemChange);
+        }
+      }
+
+      // Initial execution
+      var initialMode = getStoredMode();
+      applyThemeMode(initialMode);
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var mode = getStoredMode();
+        updateControlsUI(mode);
+      });
+    })();
+  </script>
 
   <script>
     // =========================================================================
@@ -4875,10 +5236,10 @@
     })();
   </script>
 
-  <script src="./excel-activity.js"></script>
-  <script src="./ordering-limiting.js"></script>
-  <script src="./movies-activity.js"></script>
-  <script src="./lesson-plans.js"></script>
+  <script src="/excel-activity.js"></script>
+  <script src="/ordering-limiting.js"></script>
+  <script src="/movies-activity.js"></script>
+  <script src="/lesson-plans.js"></script>
   <script>
     function openLessonPlanForModule(moduleId, chapterIndex) {
       if (typeof window.switchPortalTab === 'function') {
@@ -5538,6 +5899,7 @@
       const badgeText = document.getElementById('homeCardBadgeText');
       const badgeContainer = document.getElementById('homeCardProgressBadge');
       const launchBtnText = document.getElementById('homeLaunchBtnText');
+      const btnHeaderResume = document.getElementById('btnHeaderResumeLab');
       const homeStatus = document.getElementById('homeLabStatusText');
 
       if (bar) bar.style.width = `${pct}%`;
@@ -5545,6 +5907,14 @@
 
       if (homeStatus) {
         homeStatus.textContent = '4 Active Activities';
+      }
+
+      if (btnHeaderResume) {
+        if (labStarted || totalAnswered > 0) {
+          btnHeaderResume.classList.remove('hidden');
+        } else {
+          btnHeaderResume.classList.add('hidden');
+        }
       }
 
       if (launchBtnText) {
@@ -5727,9 +6097,8 @@
 
     // Material 3 Dynamic Ink Ripple Pointer Listener
     document.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('input, textarea, select, label, [contenteditable="true"], [data-no-ripple="true"]')) return;
       const target = e.target.closest('.m3-btn, .m3-card-expressive, button, .m3-hover-react');
-      if (!target || target.disabled || target.classList.contains('cursor-not-allowed') || target.hasAttribute('data-no-ripple')) return;
+      if (!target || target.disabled || target.classList.contains('cursor-not-allowed')) return;
       
       const rect = target.getBoundingClientRect();
       const size = Math.max(rect.width, rect.height) * 1.6;
@@ -6449,20 +6818,6 @@
       textarea.dataset.keyHandled = 'true';
 
       textarea.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-          e.preventDefault();
-          const id = this.id;
-          if (e.shiftKey) {
-            if (id === 'sqlInput' && typeof submitSQL === 'function') submitSQL();
-            else if (id === 'orderingSqlInput' && typeof window.submitOrderingSQL === 'function') window.submitOrderingSQL();
-            else if (id === 'moviesSqlInput' && typeof window.submitMoviesSQL === 'function') window.submitMoviesSQL();
-          } else {
-            if (id === 'sqlInput' && typeof runSQL === 'function') runSQL(false);
-            else if (id === 'orderingSqlInput' && typeof window.runOrderingSQL === 'function') window.runOrderingSQL(false);
-            else if (id === 'moviesSqlInput' && typeof window.runMoviesSQL === 'function') window.runMoviesSQL(false);
-          }
-          return;
-        }
         if (e.key === "'" || e.key === "‘" || e.key === "’") {
           e.preventDefault();
           const start = this.selectionStart;
@@ -8115,6 +8470,5 @@
     window.CONTINENT_PATHS = CONTINENT_PATHS;
     window.COUNTRY_MAP_DATA = COUNTRY_MAP_DATA;
   </script>
-  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

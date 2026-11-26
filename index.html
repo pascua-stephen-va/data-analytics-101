@@ -9,9 +9,9 @@
   <meta property="og:description" content="Interactive data analytics laboratory curriculum featuring Module 1: Transforming Data with Excel, Module 2: SQL Around the World, Module 3: Ordering and Limiting, and Module 4: Successful Movies." />
 
   <!-- Website Web Icon / Favicon -->
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <link rel="alternate icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='64' fill='%230e172a'/%3E%3Crect x='6' y='6' width='244' height='244' rx='58' fill='none' stroke='%233b82f6' stroke-width='8' stroke-opacity='0.45'/%3E%3Cg fill='none' stroke='%2338bdf8' stroke-linecap='round' stroke-linejoin='round' stroke-width='18'%3E%3Cellipse cx='128' cy='80' rx='74' ry='30'/%3E%3Cpath d='M54,80 v48 c0,16.57 33.13,30 74,30 s74,-13.43 74,-30 V80'/%3E%3Cpath d='M54,128 v48 c0,16.57 33.13,30 74,30 s74,-13.43 74,-30 V128'/%3E%3C/g%3E%3Ccircle cx='178' cy='80' r='4.5' fill='%2393c5fd'/%3E%3Ccircle cx='178' cy='128' r='4.5' fill='%2393c5fd'/%3E%3Ccircle cx='178' cy='176' r='4.5' fill='%2393c5fd'/%3E%3C/svg%3E" />
-  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="./favicon.svg" />
 
   <!-- Tailwind CSS CDN v3 -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -296,6 +296,26 @@
     .m3-card-expressive:active {
       transform: translateY(-1px) scale(0.985);
       transition-duration: 0.12s;
+    }
+
+    /* Disable press/hover scale bounce and ripple flash on Student Information card & form inputs */
+    .m3-card-expressive.no-press-anim,
+    .m3-card-expressive.no-press-anim:hover,
+    .m3-card-expressive.no-press-anim:active {
+      transform: none !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.12) !important;
+      border-color: rgb(30, 41, 59) !important;
+      transition: border-color 0.2s ease !important;
+    }
+    html:not(.dark) .m3-card-expressive.no-press-anim,
+    html:not(.dark) .m3-card-expressive.no-press-anim:hover,
+    html:not(.dark) .m3-card-expressive.no-press-anim:active {
+      transform: none !important;
+      border-color: #cbd5e1 !important;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+    }
+    .no-ripple .m3-ripple-wave {
+      display: none !important;
     }
 
     /* Universal M3 Hover React */
@@ -784,146 +804,178 @@
     }
 
     /* ========================================================= */
-    /* THEME 3-WAY SEGMENTED CONTROL (Light / Dark / Auto)       */
+    /* FRAMER MOTION THEME TOGGLE BUTTON                         */
     /* ========================================================= */
-    .theme-segmented-control {
+    .theme-toggle-slot {
       display: inline-flex;
       align-items: center;
-      padding: 3px;
-      gap: 3px;
-      border-radius: 9999px;
-      user-select: none;
-      transition: all 0.25s ease;
-      background-color: #061325;
-      border: 1px solid #143564;
-      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
     }
-
-    .theme-seg-btn {
+    .da-theme-toggle-btn {
+      position: relative;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
+      gap: 7px;
+      height: 34px;
+      padding: 0 12px 0 9px;
       border-radius: 9999px;
+      font-family: var(--font-ui) !important;
       font-size: 12px;
       font-weight: 600;
-      color: #94a3b8;
-      background-color: transparent;
-      border: 1px solid transparent;
+      letter-spacing: 0.015em;
       cursor: pointer;
+      user-select: none;
       white-space: nowrap;
-      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
-      line-height: 1.25;
+      border: 1px solid rgba(59, 130, 246, 0.32);
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.85));
+      color: #e2e8f0;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     }
-    .theme-seg-btn:hover {
-      color: #f1f5f9;
-      background-color: rgba(255, 255, 255, 0.05);
+    .da-theme-toggle-btn:hover {
+      border-color: rgba(96, 165, 250, 0.6);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     }
-    .theme-seg-btn:active {
-      transform: scale(0.97);
+    .da-theme-toggle-btn:focus-visible {
+      outline: 2px solid #38bdf8;
+      outline-offset: 2px;
     }
-
-    /* Active state (matches the user's reference image exactly!) */
-    .theme-seg-btn.active {
-      background-color: #0e325d !important;
-      border-color: rgba(59, 130, 246, 0.45) !important;
-      color: #ffffff !important;
-      font-weight: 700 !important;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    .da-theme-toggle-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
     }
-    .theme-seg-btn.active i {
-      color: #ffffff !important;
+    .da-theme-icon-inner {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-
-    /* Badge inside Auto button */
-    .theme-auto-badge {
-      display: inline-block;
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 1px 5px;
-      border-radius: 4px;
-      background-color: #081a33;
+    .da-theme-icon-sun {
+      color: #f59e0b;
+    }
+    .da-theme-icon-moon {
       color: #93c5fd;
-      border: 1px solid #1a4270;
-      line-height: 1.2;
-      margin-left: 2px;
-      transition: all 0.2s ease;
     }
-    .theme-seg-btn.active .theme-auto-badge {
-      background-color: #071933;
-      border-color: #255894;
-      color: #bfdbfe;
+    .da-theme-toggle-label {
+      line-height: 1;
+    }
+    .da-theme-auto-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 9999px;
+      background-color: #38bdf8;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
     }
 
-    /* Light Mode Overrides for the Segmented Control */
-    html:not(.dark) .theme-segmented-control,
-    html.light .theme-segmented-control {
-      background-color: #e2e8f0;
+    /* Light Mode Styling for Theme Toggle */
+    html:not(.dark) .da-theme-toggle-default,
+    html.light .da-theme-toggle-default {
+      background: #ffffff;
       border-color: #cbd5e1;
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+      color: #0f172a;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
     }
-    html:not(.dark) .theme-seg-btn,
-    html.light .theme-seg-btn {
+    html:not(.dark) .da-theme-toggle-default:hover,
+    html.light .da-theme-toggle-default:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+      color: #0f172a;
+    }
+    html:not(.dark) .da-theme-icon-sun,
+    html.light .da-theme-icon-sun {
+      color: #d97706;
+    }
+
+    /* Excel Green Header Variant */
+    .da-theme-toggle-excel {
+      background: rgba(6, 34, 21, 0.88);
+      border-color: rgba(16, 185, 129, 0.45);
+      color: #ecfdf5;
+    }
+    .da-theme-toggle-excel:hover {
+      background: rgba(12, 68, 42, 0.95);
+      border-color: rgba(52, 211, 153, 0.7);
+      color: #ffffff;
+    }
+
+    /* Ordering Indigo Header Variant */
+    .da-theme-toggle-ordering {
+      background: rgba(15, 20, 56, 0.88);
+      border-color: rgba(129, 140, 248, 0.45);
+      color: #eef2ff;
+    }
+    .da-theme-toggle-ordering:hover {
+      background: rgba(36, 41, 107, 0.95);
+      border-color: rgba(165, 180, 252, 0.7);
+      color: #ffffff;
+    }
+
+    /* ========================================================= */
+    /* CURRICULUM ANALYTICS DASHBOARD & GLIDING MODULE TABS      */
+    /* ========================================================= */
+    .da-analytics-dashboard {
+      box-shadow: 0 12px 32px -12px rgba(2, 6, 23, 0.45);
+    }
+    html:not(.dark) .da-analytics-dashboard,
+    html.light .da-analytics-dashboard {
+      box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.06);
+    }
+    .da-analytics-cta {
+      background-color: #2563eb;
+      color: #ffffff;
+      border: 1px solid rgba(96, 165, 250, 0.35);
+    }
+    .da-analytics-cta:hover {
+      background-color: #1d4ed8;
+    }
+    .da-module-tab-btn {
+      color: #94a3b8;
+      transition: color 0.18s ease;
+    }
+    .da-module-tab-btn:hover {
+      color: #f8fafc;
+    }
+    .da-module-tab-btn.is-active {
+      color: #ffffff;
+    }
+    .da-module-tab-active-bg {
+      background: linear-gradient(135deg, #1b263b 0%, #152033 100%);
+      border: 1px solid rgba(96, 165, 250, 0.35);
+      box-shadow: 0 6px 18px -4px rgba(2, 6, 23, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+    .da-module-tab-sub {
+      color: #64748b;
+    }
+    .da-module-tab-btn.is-active .da-module-tab-sub {
+      color: #cbd5e1;
+    }
+    .da-module-tab-pct {
+      color: #64748b;
+    }
+    html:not(.dark) .da-module-tab-btn,
+    html.light .da-module-tab-btn {
       color: #475569;
     }
-    html:not(.dark) .theme-seg-btn:hover,
-    html.light .theme-seg-btn:hover {
+    html:not(.dark) .da-module-tab-btn:hover,
+    html.light .da-module-tab-btn:hover {
       color: #0f172a;
-      background-color: rgba(255, 255, 255, 0.6);
     }
-    html:not(.dark) .theme-seg-btn.active,
-    html.light .theme-seg-btn.active {
-      background-color: #ffffff !important;
-      border-color: #cbd5e1 !important;
-      color: #0f172a !important;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    html:not(.dark) .da-module-tab-btn.is-active,
+    html.light .da-module-tab-btn.is-active {
+      color: #0f172a;
     }
-    html:not(.dark) .theme-seg-btn.active i,
-    html.light .theme-seg-btn.active i {
-      color: #0284c7 !important;
+    html:not(.dark) .da-module-tab-active-bg,
+    html.light .da-module-tab-active-bg {
+      background: #ffffff;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.06);
     }
-    html:not(.dark) .theme-auto-badge,
-    html.light .theme-auto-badge {
-      background-color: #f1f5f9;
-      color: #334155;
-      border-color: #cbd5e1;
-    }
-    html:not(.dark) .theme-seg-btn.active .theme-auto-badge,
-    html.light .theme-seg-btn.active .theme-auto-badge {
-      background-color: #f8fafc;
-      color: #1e293b;
-      border-color: #94a3b8;
-    }
-
-    /* Excel / Ordering Header Variations */
-    .excel-theme-control {
-      background-color: #062215 !important;
-      border-color: #0d5431 !important;
-    }
-    .excel-theme-control .theme-seg-btn.active {
-      background-color: #0f6139 !important;
-      border-color: #107c41 !important;
-    }
-    .excel-theme-control .theme-auto-badge {
-      background-color: #041a10;
-      color: #a7f3d0;
-      border-color: #0f5132;
-    }
-
-    .ordering-theme-control {
-      background-color: #0d0f2b !important;
-      border-color: #2e3470 !important;
-    }
-    .ordering-theme-control .theme-seg-btn.active {
-      background-color: #24296b !important;
-      border-color: #4338ca !important;
-    }
-    .ordering-theme-control .theme-auto-badge {
-      background-color: #080a1f;
-      color: #c7d2fe;
-      border-color: #232759;
+    html:not(.dark) .da-module-tab-btn.is-active .da-module-tab-sub,
+    html.light .da-module-tab-btn.is-active .da-module-tab-sub {
+      color: #475569;
     }
 
     /* Global Body Backgrounds */
@@ -2294,29 +2346,13 @@
       </div>
 
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
+        <div id="themeToggleSlotHome" class="theme-toggle-slot" data-theme-variant="default"></div>
 
         <div class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-xs font-semibold text-slate-300 shadow-inner">
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span id="homeLabStatusText">4 Active Activities</span>
         </div>
-        <button id="btnHeaderResumeLab" onclick="openActivity('sql_around_the_world')" class="hidden m3-btn m3-btn-filled px-4 py-1.5 text-xs font-bold gap-1.5">
-          <i class="ph ph-play-fill text-[11px]"></i> Resume Lab
-        </button>
       </div>
     </header>
 
@@ -2366,17 +2402,20 @@
           </div>
         </div>
 
+        <!-- Summary Analytics Dashboard (Recharts Curriculum Progress) -->
+        <div id="curriculumAnalyticsDashboardSlot"></div>
+
         <!-- Module Selector Navigation Bar -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <i class="ph ph-squares-four text-blue-400"></i>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+              <i class="ph ph-squares-four text-blue-500 dark:text-blue-400"></i>
               <span>Select Module to Study:</span>
             </h3>
-            <span class="text-xs text-slate-400">Step 1 of 2: Study Lessons First</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Step 1 of 2: Study Lessons First</span>
           </div>
-          <div id="curriculumModuleNav" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <!-- Dynamically populated by lesson-plans.js -->
+          <div id="curriculumModuleNav" class="w-full">
+            <!-- Dynamically mounted by Framer Motion ModuleTabs (with lesson-plans.js fallback) -->
           </div>
         </div>
 
@@ -2437,7 +2476,7 @@
         </div>
 
         <!-- Student Information & Academic Credentials (Moved to Home Selection) -->
-        <div class="m3-card-expressive bg-[#151c2a] border border-slate-800 p-5 md:p-6 shadow-xl space-y-4 rounded-[24px]">
+        <div id="studentInfoCard" class="m3-card-expressive no-ripple no-press-anim bg-[#151c2a] border border-slate-800 p-5 md:p-6 shadow-xl space-y-4 rounded-[24px]">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
           <div class="flex items-center gap-3">
             <div class="w-9 h-9 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
@@ -2461,15 +2500,15 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div>
             <label for="homeStudentFirstName" class="block text-[11px] font-bold text-slate-300 mb-1.5">First Name</label>
-            <input type="text" id="homeStudentFirstName" placeholder="e.g. Alex" oninput="handleStudentInfoChange()" class="w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition" />
+            <input type="text" id="homeStudentFirstName" placeholder="e.g. Alex" oninput="handleStudentInfoChange()" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
           </div>
           <div>
             <label for="homeStudentLastName" class="block text-[11px] font-bold text-slate-300 mb-1.5">Last Name</label>
-            <input type="text" id="homeStudentLastName" placeholder="e.g. Morgan" oninput="handleStudentInfoChange()" class="w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition" />
+            <input type="text" id="homeStudentLastName" placeholder="e.g. Morgan" oninput="handleStudentInfoChange()" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
           </div>
           <div>
             <label for="homeStudentBatch" class="block text-[11px] font-bold text-slate-300 mb-1.5">Batch Number</label>
-            <input type="number" id="homeStudentBatch" min="1" max="999" placeholder="e.g. 1 to 999" oninput="validateBatchInput(this); handleStudentInfoChange();" class="w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition" />
+            <input type="number" id="homeStudentBatch" min="1" max="999" placeholder="e.g. 1 to 999" oninput="validateBatchInput(this); handleStudentInfoChange();" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
           </div>
           <div>
             <span class="block text-[11px] font-bold text-slate-300 mb-1.5">Session Date &amp; Time</span>
@@ -2834,11 +2873,6 @@
             <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <span class="font-extrabold text-sm text-slate-900 dark:text-slate-100">&copy; 2026 Stephen Pascua</span>
               <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Copyright Holder</span>
-              <a href="https://forms.gle/2K5X9GqJAKWDUz4C9" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/80 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition shadow-2xs">
-                <i class="ph ph-chat-teardrop-dots-fill text-amber-600 dark:text-amber-400 text-xs"></i>
-                <span>Give Feedback</span>
-                <i class="ph ph-arrow-square-out text-[10px] opacity-75"></i>
-              </a>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
               Data Analytics 101 &bull; Virtual Assistant Services Level III Certification Preparation Platform
@@ -2911,21 +2945,8 @@
 
     <!-- Progress & Controls -->
     <div class="flex items-center space-x-2 sm:space-x-3">
-      <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-      <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-        <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-          <i class="ph ph-sun text-sm"></i>
-          <span>Light</span>
-        </button>
-        <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-          <i class="ph ph-moon text-sm"></i>
-          <span>Dark</span>
-        </button>
-        <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-          <i class="ph ph-desktop text-sm"></i>
-          <span>Auto</span>
-        </button>
-      </div>
+      <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
+      <div id="themeToggleSlotSqlWorld" class="theme-toggle-slot" data-theme-variant="default"></div>
 
       <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
         <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -3308,21 +3329,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control excel-theme-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
+        <div id="themeToggleSlotExcel" class="theme-toggle-slot" data-theme-variant="excel"></div>
 
         <div class="flex items-center space-x-2.5 bg-emerald-950/70 border border-emerald-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-emerald-200/80 font-medium">Progress</span>
@@ -3950,21 +3958,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control ordering-theme-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
+        <div id="themeToggleSlotOrdering" class="theme-toggle-slot" data-theme-variant="ordering"></div>
 
         <div class="flex items-center space-x-2.5 bg-indigo-950/70 border border-indigo-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-indigo-200/80 font-medium">Progress</span>
@@ -4122,21 +4117,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
+        <div id="themeToggleSlotMovies" class="theme-toggle-slot" data-theme-variant="default"></div>
 
         <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -5061,11 +5043,16 @@
         applyThemeMode(mode);
       };
 
-      // Backward compatibility toggle: cycles light -> dark -> auto -> light
+      window.getAppThemeState = function () {
+        var mode = getStoredMode();
+        return { mode: mode, effectiveTheme: resolveEffectiveTheme(mode) };
+      };
+
+      // Toggle between light and dark with manual override persistence
       window.toggleAppTheme = function () {
-        var currentMode = getStoredMode();
-        var nextMode = currentMode === 'light' ? 'dark' : (currentMode === 'dark' ? 'auto' : 'light');
-        window.setAppThemeMode(nextMode);
+        var currentEffective = resolveEffectiveTheme(getStoredMode());
+        var nextTheme = currentEffective === 'dark' ? 'light' : 'dark';
+        window.setAppThemeMode(nextTheme);
       };
 
       // Listen to OS / Browser system theme changes in real time
@@ -5236,10 +5223,10 @@
     })();
   </script>
 
-  <script src="/excel-activity.js"></script>
-  <script src="/ordering-limiting.js"></script>
-  <script src="/movies-activity.js"></script>
-  <script src="/lesson-plans.js"></script>
+  <script src="./excel-activity.js"></script>
+  <script src="./ordering-limiting.js"></script>
+  <script src="./movies-activity.js"></script>
+  <script src="./lesson-plans.js"></script>
   <script>
     function openLessonPlanForModule(moduleId, chapterIndex) {
       if (typeof window.switchPortalTab === 'function') {
@@ -5899,7 +5886,6 @@
       const badgeText = document.getElementById('homeCardBadgeText');
       const badgeContainer = document.getElementById('homeCardProgressBadge');
       const launchBtnText = document.getElementById('homeLaunchBtnText');
-      const btnHeaderResume = document.getElementById('btnHeaderResumeLab');
       const homeStatus = document.getElementById('homeLabStatusText');
 
       if (bar) bar.style.width = `${pct}%`;
@@ -5907,14 +5893,6 @@
 
       if (homeStatus) {
         homeStatus.textContent = '4 Active Activities';
-      }
-
-      if (btnHeaderResume) {
-        if (labStarted || totalAnswered > 0) {
-          btnHeaderResume.classList.remove('hidden');
-        } else {
-          btnHeaderResume.classList.add('hidden');
-        }
       }
 
       if (launchBtnText) {
@@ -5939,6 +5917,10 @@
           badgeContainer.className = 'relative z-10 text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5';
         }
       }
+
+      try {
+        window.dispatchEvent(new CustomEvent('curriculumprogresschange'));
+      } catch (e) {}
     }
 
     window.updateExcelHomeScreenCardProgress = function() {
@@ -5979,6 +5961,10 @@
           badgeContainer.className = 'relative z-10 text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5';
         }
       }
+
+      try {
+        window.dispatchEvent(new CustomEvent('curriculumprogresschange'));
+      } catch (e) {}
     };
 
     const CURRICULUM_DATA = {
@@ -6097,8 +6083,12 @@
 
     // Material 3 Dynamic Ink Ripple Pointer Listener
     document.addEventListener('pointerdown', (e) => {
+      // Never trigger bright ripple wave on form inputs, labels, Student Info card, or elements marked .no-ripple
+      if (e.target && e.target.closest('input, textarea, select, label, [contenteditable="true"], .no-ripple, #studentInfoCard, .da-theme-toggle-btn')) {
+        return;
+      }
       const target = e.target.closest('.m3-btn, .m3-card-expressive, button, .m3-hover-react');
-      if (!target || target.disabled || target.classList.contains('cursor-not-allowed')) return;
+      if (!target || target.disabled || target.classList.contains('cursor-not-allowed') || target.classList.contains('no-ripple') || target.closest('.no-ripple, #studentInfoCard')) return;
       
       const rect = target.getBoundingClientRect();
       const size = Math.max(rect.width, rect.height) * 1.6;
@@ -8470,5 +8460,7 @@
     window.CONTINENT_PATHS = CONTINENT_PATHS;
     window.COUNTRY_MAP_DATA = COUNTRY_MAP_DATA;
   </script>
+  <div id="root" class="hidden" aria-hidden="true"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

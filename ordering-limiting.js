@@ -2009,6 +2009,10 @@
         badgeContainer.className = 'relative z-10 text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5';
       }
     }
+
+    try {
+      window.dispatchEvent(new CustomEvent('curriculumprogresschange'));
+    } catch (e) {}
   }
 
   function startOrderingLab() {

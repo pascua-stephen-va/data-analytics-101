@@ -640,16 +640,28 @@
       if (curriculumContainer) curriculumContainer.classList.add('hidden');
       if (activitiesContainer) activitiesContainer.classList.remove('hidden');
     }
+
+    try {
+      window.dispatchEvent(new CustomEvent('portaltabchange', { detail: { tab: tabName } }));
+      window.dispatchEvent(new CustomEvent('curriculumprogresschange'));
+    } catch (e) {}
   };
 
   // -----------------------------------------------------------------------
   // SELECT CURRICULUM MODULE
   // -----------------------------------------------------------------------
+  window.getCurrentCurriculumModule = function () {
+    return currentModuleId;
+  };
+
   window.selectCurriculumModule = function (moduleId) {
     if (!LESSON_CURRICULUM[moduleId]) moduleId = 'excel';
     currentModuleId = moduleId;
     renderCurriculumModuleNav();
     renderCurriculumModuleContent();
+    try {
+      window.dispatchEvent(new CustomEvent('curriculummodulechange', { detail: { moduleId: currentModuleId } }));
+    } catch (e) {}
   };
 
   // -----------------------------------------------------------------------
@@ -685,7 +697,7 @@
   // -----------------------------------------------------------------------
   function renderCurriculumModuleNav() {
     const nav = document.getElementById('curriculumModuleNav');
-    if (!nav) return;
+    if (!nav || nav.dataset.reactMounted === 'true') return;
 
     const modules = [
       { id: 'excel', label: 'Module 1: Excel Masterclass', badge: '18 Formulas · 4 Ch.', icon: 'ph-file-xls', activeColor: 'emerald' },

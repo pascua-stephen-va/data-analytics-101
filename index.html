@@ -35,12 +35,17 @@
     (function () {
       try {
         var mode = localStorage.getItem('da101_theme_mode');
-        if (!mode) {
+        var source = 'system';
+        if (mode === 'light' || mode === 'dark') {
+          source = mode;
+        } else if (mode !== 'auto' && mode !== 'system') {
           var legacy = localStorage.getItem('da101_theme');
-          mode = (legacy === 'light' || legacy === 'dark') ? legacy : 'auto';
+          if (legacy === 'light' || legacy === 'dark') {
+            source = legacy;
+          }
         }
-        var effective = mode;
-        if (mode === 'auto') {
+        var effective = source;
+        if (source === 'system') {
           var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           effective = prefersDark ? 'dark' : 'light';
         }
@@ -52,6 +57,7 @@
           document.documentElement.classList.add('light');
         }
         document.documentElement.setAttribute('data-theme', effective);
+        document.documentElement.setAttribute('data-theme-source', source);
       } catch (e) {
         console.warn('Initial theme detection error:', e);
       }
@@ -188,8 +194,7 @@
     .m3-tab-pill,
     .m3-tab-pill-active,
     .m3-tab-pill-inactive,
-    .theme-seg-btn,
-    .theme-auto-badge,
+    .theme-toggle-btn,
     [role="button"],
     [role="tab"],
     nav a,
@@ -737,146 +742,15 @@
     }
 
     /* ========================================================= */
-    /* THEME 3-WAY SEGMENTED CONTROL (Light / Dark / Auto)       */
+    /* THEME TOGGLE MOUNT SLOT (Zero-CLS Placeholder)            */
     /* ========================================================= */
-    .theme-segmented-control {
+    .theme-toggle-mount {
       display: inline-flex;
       align-items: center;
-      padding: 3px;
-      gap: 3px;
-      border-radius: 9999px;
-      user-select: none;
-      transition: all 0.25s ease;
-      background-color: #061325;
-      border: 1px solid #143564;
-      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
-    }
-
-    .theme-seg-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 9999px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #94a3b8;
-      background-color: transparent;
-      border: 1px solid transparent;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
-      line-height: 1.25;
-    }
-    .theme-seg-btn:hover {
-      color: #f1f5f9;
-      background-color: rgba(255, 255, 255, 0.05);
-    }
-    .theme-seg-btn:active {
-      transform: scale(0.97);
-    }
-
-    /* Active state (matches the user's reference image exactly!) */
-    .theme-seg-btn.active {
-      background-color: #0e325d !important;
-      border-color: rgba(59, 130, 246, 0.45) !important;
-      color: #ffffff !important;
-      font-weight: 700 !important;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-    }
-    .theme-seg-btn.active i {
-      color: #ffffff !important;
-    }
-
-    /* Badge inside Auto button */
-    .theme-auto-badge {
-      display: inline-block;
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 1px 5px;
-      border-radius: 4px;
-      background-color: #081a33;
-      color: #93c5fd;
-      border: 1px solid #1a4270;
-      line-height: 1.2;
-      margin-left: 2px;
-      transition: all 0.2s ease;
-    }
-    .theme-seg-btn.active .theme-auto-badge {
-      background-color: #071933;
-      border-color: #255894;
-      color: #bfdbfe;
-    }
-
-    /* Light Mode Overrides for the Segmented Control */
-    html:not(.dark) .theme-segmented-control,
-    html.light .theme-segmented-control {
-      background-color: #e2e8f0;
-      border-color: #cbd5e1;
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
-    }
-    html:not(.dark) .theme-seg-btn,
-    html.light .theme-seg-btn {
-      color: #475569;
-    }
-    html:not(.dark) .theme-seg-btn:hover,
-    html.light .theme-seg-btn:hover {
-      color: #0f172a;
-      background-color: rgba(255, 255, 255, 0.6);
-    }
-    html:not(.dark) .theme-seg-btn.active,
-    html.light .theme-seg-btn.active {
-      background-color: #ffffff !important;
-      border-color: #cbd5e1 !important;
-      color: #0f172a !important;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    }
-    html:not(.dark) .theme-seg-btn.active i,
-    html.light .theme-seg-btn.active i {
-      color: #0284c7 !important;
-    }
-    html:not(.dark) .theme-auto-badge,
-    html.light .theme-auto-badge {
-      background-color: #f1f5f9;
-      color: #334155;
-      border-color: #cbd5e1;
-    }
-    html:not(.dark) .theme-seg-btn.active .theme-auto-badge,
-    html.light .theme-seg-btn.active .theme-auto-badge {
-      background-color: #f8fafc;
-      color: #1e293b;
-      border-color: #94a3b8;
-    }
-
-    /* Excel / Ordering Header Variations */
-    .excel-theme-control {
-      background-color: #062215 !important;
-      border-color: #0d5431 !important;
-    }
-    .excel-theme-control .theme-seg-btn.active {
-      background-color: #0f6139 !important;
-      border-color: #107c41 !important;
-    }
-    .excel-theme-control .theme-auto-badge {
-      background-color: #041a10;
-      color: #a7f3d0;
-      border-color: #0f5132;
-    }
-
-    .ordering-theme-control {
-      background-color: #0d0f2b !important;
-      border-color: #2e3470 !important;
-    }
-    .ordering-theme-control .theme-seg-btn.active {
-      background-color: #24296b !important;
-      border-color: #4338ca !important;
-    }
-    .ordering-theme-control .theme-auto-badge {
-      background-color: #080a1f;
-      color: #c7d2fe;
-      border-color: #232759;
+      justify-content: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      flex-shrink: 0;
     }
 
     /* Global Body Backgrounds */
@@ -2247,21 +2121,8 @@
       </div>
 
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
+        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
 
         <div class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-xs font-semibold text-slate-300 shadow-inner">
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -2856,21 +2717,8 @@
 
     <!-- Progress & Controls -->
     <div class="flex items-center space-x-2 sm:space-x-3">
-      <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-      <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-        <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-          <i class="ph ph-sun text-sm"></i>
-          <span>Light</span>
-        </button>
-        <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-          <i class="ph ph-moon text-sm"></i>
-          <span>Dark</span>
-        </button>
-        <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-          <i class="ph ph-desktop text-sm"></i>
-          <span>Auto</span>
-        </button>
-      </div>
+      <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
+      <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
 
       <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
         <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -3253,21 +3101,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control excel-theme-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
+        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="excel"></div>
 
         <div class="flex items-center space-x-2.5 bg-emerald-950/70 border border-emerald-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-emerald-200/80 font-medium">Progress</span>
@@ -3895,21 +3730,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control ordering-theme-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
+        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="ordering"></div>
 
         <div class="flex items-center space-x-2.5 bg-indigo-950/70 border border-indigo-700/60 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-indigo-200/80 font-medium">Progress</span>
@@ -4067,21 +3889,8 @@
 
       <!-- Progress & Quick Controls -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Theme 3-Way Segmented Control (Light / Dark / Auto) -->
-        <div class="theme-segmented-control" role="radiogroup" aria-label="Theme mode selection">
-          <button type="button" onclick="setAppThemeMode('light')" data-theme-btn="light" class="theme-seg-btn" role="radio" aria-checked="false" title="Light Mode">
-            <i class="ph ph-sun text-sm"></i>
-            <span>Light</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('dark')" data-theme-btn="dark" class="theme-seg-btn" role="radio" aria-checked="false" title="Dark Mode">
-            <i class="ph ph-moon text-sm"></i>
-            <span>Dark</span>
-          </button>
-          <button type="button" onclick="setAppThemeMode('auto')" data-theme-btn="auto" class="theme-seg-btn active" role="radio" aria-checked="true" title="Auto (System Theme)">
-            <i class="ph ph-desktop text-sm"></i>
-            <span>Auto</span>
-          </button>
-        </div>
+        <!-- Animated Theme Toggle (Auto OS Sync + Manual Override) -->
+        <div class="theme-toggle-mount" data-theme-toggle-mount data-theme-toggle-variant="default"></div>
 
         <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
           <span class="text-xs text-slate-400 font-medium">Progress</span>
@@ -4921,122 +4730,7 @@
   </div>
 
 
-  <script>
-    // =========================================================================
-    // THEME CONTROLLER (3-Way: Light / Dark / Auto with Live System Synchronization)
-    // =========================================================================
-    (function () {
-      function getSystemTheme() {
-        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-      }
-
-      function getStoredMode() {
-        try {
-          var mode = localStorage.getItem('da101_theme_mode');
-          if (mode === 'light' || mode === 'dark' || mode === 'auto') {
-            return mode;
-          }
-          var legacy = localStorage.getItem('da101_theme');
-          if (legacy === 'light' || legacy === 'dark') {
-            return legacy;
-          }
-          return 'auto';
-        } catch (e) {
-          return 'auto';
-        }
-      }
-
-      function resolveEffectiveTheme(mode) {
-        if (mode === 'light' || mode === 'dark') {
-          return mode;
-        }
-        return getSystemTheme();
-      }
-
-      function updateControlsUI(activeMode) {
-        // Update active states on segmented buttons across all headers
-        var controls = document.querySelectorAll('.theme-segmented-control');
-        controls.forEach(function (control) {
-          var buttons = control.querySelectorAll('.theme-seg-btn');
-          buttons.forEach(function (btn) {
-            var btnMode = btn.getAttribute('data-theme-btn');
-            if (btnMode === activeMode) {
-              btn.classList.add('active');
-              btn.setAttribute('aria-checked', 'true');
-            } else {
-              btn.classList.remove('active');
-              btn.setAttribute('aria-checked', 'false');
-            }
-          });
-        });
-      }
-
-      function applyThemeMode(mode) {
-        var effectiveTheme = resolveEffectiveTheme(mode);
-        var isDark = effectiveTheme === 'dark';
-
-        if (isDark) {
-          document.documentElement.classList.add('dark');
-          document.documentElement.classList.remove('light');
-          document.documentElement.setAttribute('data-theme', 'dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.classList.add('light');
-          document.documentElement.setAttribute('data-theme', 'light');
-        }
-
-        updateControlsUI(mode);
-
-        try {
-          window.dispatchEvent(new CustomEvent('appthemechange', {
-            detail: { mode: mode, effectiveTheme: effectiveTheme, isDark: isDark }
-          }));
-          if (typeof handleSQLInput === 'function') handleSQLInput();
-          if (typeof window.handleOrderingSQLInput === 'function') window.handleOrderingSQLInput();
-          if (typeof window.handleMoviesSQLInput === 'function') window.handleMoviesSQLInput();
-        } catch (e) {}
-      }
-
-      window.setAppThemeMode = function (mode) {
-        if (mode !== 'light' && mode !== 'dark' && mode !== 'auto') mode = 'auto';
-        try {
-          localStorage.setItem('da101_theme_mode', mode);
-          localStorage.setItem('da101_theme', mode === 'auto' ? getSystemTheme() : mode);
-        } catch (e) {}
-        applyThemeMode(mode);
-      };
-
-      // Backward compatibility toggle: cycles light -> dark -> auto -> light
-      window.toggleAppTheme = function () {
-        var currentMode = getStoredMode();
-        var nextMode = currentMode === 'light' ? 'dark' : (currentMode === 'dark' ? 'auto' : 'light');
-        window.setAppThemeMode(nextMode);
-      };
-
-      // Listen to OS / Browser system theme changes in real time
-      if (window.matchMedia) {
-        var mql = window.matchMedia('(prefers-color-scheme: dark)');
-        var onSystemChange = function () {
-          var currentMode = getStoredMode();
-          applyThemeMode(currentMode);
-        };
-        if (mql.addEventListener) {
-          mql.addEventListener('change', onSystemChange);
-        } else if (mql.addListener) {
-          mql.addListener(onSystemChange);
-        }
-      }
-
-      // Initial execution
-      var initialMode = getStoredMode();
-      applyThemeMode(initialMode);
-
-      document.addEventListener('DOMContentLoaded', function () {
-        var mode = getStoredMode();
-        updateControlsUI(mode);
-      });
-    })();
-  </script>
+  <!-- Theme controller & animated toggle buttons are mounted via /src/main.tsx -->
 
   <script>
     // =========================================================================
@@ -8421,5 +8115,6 @@
     window.CONTINENT_PATHS = CONTINENT_PATHS;
     window.COUNTRY_MAP_DATA = COUNTRY_MAP_DATA;
   </script>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

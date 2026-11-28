@@ -27,8 +27,11 @@ import {
   ALL_MODULE_IDS,
   sanitizeClassCode,
   useAccess,
+  type AuditMetrics,
+  type ClassAnnouncement,
   type ClassCodeRecord,
   type EnrollmentRecord,
+  type ExamMode,
 } from '../context/AccessContext';
 import {
   MODULE_DEFINITIONS,
@@ -39,6 +42,10 @@ import {
   cleanNameField,
   formatFullName,
 } from '../utils/identity';
+import {
+  computeVerificationCode,
+  normalizeVerificationCode,
+} from '../utils/verificationCode';
 import {
   M3_BACKDROP_MOTION,
   M3_MODAL_MOTION,
@@ -145,6 +152,8 @@ function parseClassCodeSnapshot(
         startsAt: d.startsAt,
         expiresAt: d.expiresAt,
         active: Boolean(d.active),
+        examMode: d.examMode === 'exam' ? 'exam' : 'practice',
+        archived: Boolean(d.archived),
         createdBy: d.createdBy,
         createdAt: d.createdAt instanceof Timestamp ? d.createdAt : undefined,
       });
@@ -165,6 +174,10 @@ function parseEnrollmentSnapshot(
   snapshot.forEach((docSnap) => {
     const d = docSnap.data() as Partial<EnrollmentRecord>;
     if (d.expiresAt instanceof Timestamp) {
+      const rawAudit =
+        d.auditMetrics && typeof d.auditMetrics === 'object'
+          ? (d.auditMetrics as Partial<AuditMetrics>)
+          : undefined;
       rows.push({
         uid: docSnap.id,
         email: String(d.email || ''),
@@ -174,6 +187,7 @@ function parseEnrollmentSnapshot(
         allowedModules: Array.isArray(d.allowedModules)
           ? (d.allowedModules as CurriculumModuleId[])
           : [],
+        examMode: d.examMode === 'exam' ? 'exam' : 'practice',
         startsAt: d.startsAt instanceof Timestamp ? d.startsAt : undefined,
         expiresAt: d.expiresAt,
         customExpiresAt:
@@ -195,6 +209,23 @@ function parseEnrollmentSnapshot(
           typeof d.duplicateOfUid === 'string' ? d.duplicateOfUid : undefined,
         flaggedAt: d.flaggedAt instanceof Timestamp ? d.flaggedAt : undefined,
         moduleScores: d.moduleScores,
+        auditMetrics: rawAudit
+          ? {
+              tabSwitches:
+                typeof rawAudit.tabSwitches === 'number'
+                  ? rawAudit.tabSwitches
+                  : 0,
+              largePastes:
+                typeof rawAudit.largePastes === 'number'
+                  ? rawAudit.largePastes
+                  : 0,
+              moduleDurationsSec:
+                rawAudit.moduleDurationsSec &&
+                typeof rawAudit.moduleDurationsSec === 'object'
+                  ? rawAudit.moduleDurationsSec
+                  : {},
+            }
+          : undefined,
       });
     }
   });
@@ -210,6 +241,44 @@ function parseEnrollmentSnapshot(
   return rows;
 }
 
+function getStudentTotalDurationMinutes(student: EnrollmentRecord): number {
+  const durations = student.auditMetrics?.moduleDurationsSec;
+  if (!durations) return 0;
+  const totalSec = Object.values(durations).reduce(
+    (sum, v) => sum + (typeof v === 'number' && Number.isFinite(v) ? v : 0),
+    0,
+  );
+  return Math.round(totalSec / 60);
+}
+
+function isStudentAllFourCompleted(student: EnrollmentRecord): boolean {
+  const targetMods =
+    student.allowedModules.length > 0 ? student.allowedModules : ALL_MODULE_IDS;
+  return targetMods.every((modId) => {
+    const def = MODULE_DEFINITIONS.find((m) => m.id === modId);
+    const sc = student.moduleScores?.[modId];
+    const total = sc?.total ?? def?.defaultTotal ?? 10;
+    return (sc?.passed ?? 0) >= total && total > 0;
+  });
+}
+
+function isStudentInProgress(student: EnrollmentRecord): boolean {
+  if (isStudentAllFourCompleted(student)) return false;
+  return MODULE_DEFINITIONS.some(
+    (m) =>
+      (student.moduleScores?.[m.id]?.attempted ?? 0) > 0 ||
+      (student.moduleScores?.[m.id]?.passed ?? 0) > 0,
+  );
+}
+
+type StatusChipKey =
+  | 'ALL'
+  | 'COMPLETED'
+  | 'IN_PROGRESS'
+  | 'ACTIVE'
+  | 'LOCKED'
+  | 'FLAGGED';
+
 type DeleteTarget =
   | { kind: 'student'; student: EnrollmentRecord }
   | { kind: 'code'; codeRecord: ClassCodeRecord }
@@ -217,7 +286,8 @@ type DeleteTarget =
 
 type TimeEditTarget =
   | { kind: 'code'; codeRecord: ClassCodeRecord }
-  | { kind: 'student'; student: EnrollmentRecord };
+  | { kind: 'student'; student: EnrollmentRecord }
+  | { kind: 'batch'; batchNumber: string };
 
 async function deleteStudentRecords(student: EnrollmentRecord) {
   const tasks: Promise<unknown>[] = [
@@ -279,7 +349,17 @@ export function InstructorPanel() {
   const [durationUnit, setDurationUnit] = useState<'hours' | 'days'>('hours');
   const [selectedModules, setSelectedModules] =
     useState<CurriculumModuleId[]>(ALL_MODULE_IDS);
+  const [selectedExamMode, setSelectedExamMode] = useState<ExamMode>('practice');
   const [creating, setCreating] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Live Class Broadcast state
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [liveAnnouncement, setLiveAnnouncement] =
+    useState<ClassAnnouncement | null>(null);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastBatch, setBroadcastBatch] = useState('ALL');
+  const [savingBroadcast, setSavingBroadcast] = useState(false);
 
   // Registered students state
   const [students, setStudents] = useState<EnrollmentRecord[]>([]);
@@ -289,7 +369,8 @@ export function InstructorPanel() {
   const [busyStudentUid, setBusyStudentUid] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusChip, setStatusChip] = useState<StatusChipKey>('ALL');
+  const [verifyCodeInput, setVerifyCodeInput] = useState('');
 
   // Instructor edit/override modal state (name/batch)
   const [editingStudent, setEditingStudent] = useState<EnrollmentRecord | null>(
@@ -419,20 +500,98 @@ export function InstructorPanel() {
     return () => unsubscribe();
   }, [instructorPanelOpen, isInstructor]);
 
+  // Subscribe to live class broadcast announcement
+  useEffect(() => {
+    if (!instructorPanelOpen || !isInstructor) return;
+    const annRef = doc(db, 'class_announcements', 'active');
+    const unsubscribe = onSnapshot(
+      annRef,
+      (snap) => {
+        if (!snap.exists()) {
+          setLiveAnnouncement(null);
+          return;
+        }
+        const d = snap.data() as Record<string, unknown>;
+        const active = Boolean(d.active);
+        const msg = typeof d.message === 'string' ? d.message.trim() : '';
+        if (!active || !msg) {
+          setLiveAnnouncement(null);
+          return;
+        }
+        setLiveAnnouncement({
+          id:
+            typeof d.id === 'string' && d.id
+              ? d.id
+              : String(d.updatedAtMs || 'active'),
+          message: msg,
+          targetBatch:
+            typeof d.targetBatch === 'string' && d.targetBatch
+              ? d.targetBatch
+              : 'ALL',
+          active: true,
+          updatedBy: typeof d.updatedBy === 'string' ? d.updatedBy : undefined,
+          updatedAtMs:
+            typeof d.updatedAtMs === 'number' ? d.updatedAtMs : undefined,
+        });
+      },
+      () => {
+        // Ignore if rules haven't added class_announcements yet
+      },
+    );
+    return () => unsubscribe();
+  }, [instructorPanelOpen, isInstructor]);
+
+  const archivedCodesCount = useMemo(
+    () => codes.filter((c) => Boolean(c.archived)).length,
+    [codes],
+  );
+
+  const visibleCodes = useMemo(
+    () => (showArchived ? codes : codes.filter((c) => !c.archived)),
+    [codes, showArchived],
+  );
+
+  // Batches where EVERY class code for that batch is archived
+  const fullyArchivedBatches = useMemo(() => {
+    const byBatch = new Map<string, { total: number; archived: number }>();
+    codes.forEach((c) => {
+      if (!c.batchNumber) return;
+      const entry = byBatch.get(c.batchNumber) || { total: 0, archived: 0 };
+      entry.total += 1;
+      if (c.archived) entry.archived += 1;
+      byBatch.set(c.batchNumber, entry);
+    });
+    const archivedSet = new Set<string>();
+    byBatch.forEach((val, key) => {
+      if (val.total > 0 && val.total === val.archived) {
+        archivedSet.add(key);
+      }
+    });
+    return archivedSet;
+  }, [codes]);
+
   const distinctBatches = useMemo(() => {
     const set = new Set<string>();
     students.forEach((s) => {
-      if (s.batchNumber) set.add(s.batchNumber);
+      if (s.batchNumber) {
+        if (showArchived || !fullyArchivedBatches.has(s.batchNumber)) {
+          set.add(s.batchNumber);
+        }
+      }
     });
     codes.forEach((c) => {
-      if (c.batchNumber) set.add(c.batchNumber);
+      if (c.batchNumber) {
+        if (showArchived || !fullyArchivedBatches.has(c.batchNumber)) {
+          set.add(c.batchNumber);
+        }
+      }
     });
     return Array.from(set).sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true }),
     );
-  }, [codes, students]);
+  }, [codes, fullyArchivedBatches, showArchived, students]);
 
-  // Reset batchFilter if selected batch was just deleted
+  // Reset batchFilter if selected batch was deleted or hidden by archive toggle
   useEffect(() => {
     if (batchFilter !== 'ALL' && !distinctBatches.includes(batchFilter)) {
       setBatchFilter('ALL');
@@ -444,12 +603,19 @@ export function InstructorPanel() {
     [students],
   );
 
-  const filteredStudents = useMemo(() => {
+  // Batch + search scoped students (before status chip filtering, so chip counts stay accurate)
+  const batchScopedStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
     return students.filter((s) => {
+      if (
+        !showArchived &&
+        s.batchNumber &&
+        fullyArchivedBatches.has(s.batchNumber) &&
+        batchFilter === 'ALL'
+      ) {
+        return false;
+      }
       if (batchFilter !== 'ALL' && s.batchNumber !== batchFilter) return false;
-      const status = getStudentStatus(s, nowMs);
-      if (statusFilter !== 'ALL' && status !== statusFilter) return false;
       if (!q) return true;
       const haystack = [
         s.fullName,
@@ -466,7 +632,140 @@ export function InstructorPanel() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [batchFilter, nowMs, statusFilter, studentSearch, students]);
+  }, [batchFilter, fullyArchivedBatches, showArchived, studentSearch, students]);
+
+  const statusChipCounts = useMemo(() => {
+    const counts: Record<StatusChipKey, number> = {
+      ALL: batchScopedStudents.length,
+      COMPLETED: 0,
+      IN_PROGRESS: 0,
+      ACTIVE: 0,
+      LOCKED: 0,
+      FLAGGED: 0,
+    };
+    for (const s of batchScopedStudents) {
+      const st = getStudentStatus(s, nowMs);
+      if (isStudentAllFourCompleted(s)) counts.COMPLETED += 1;
+      if (isStudentInProgress(s)) counts.IN_PROGRESS += 1;
+      if (st === 'Active') counts.ACTIVE += 1;
+      if (st === 'Expired' || st === 'Blocked' || st === 'Revoked') {
+        counts.LOCKED += 1;
+      }
+      if (s.flaggedDuplicate && s.blocked) counts.FLAGGED += 1;
+    }
+    return counts;
+  }, [batchScopedStudents, nowMs]);
+
+  const filteredStudents = useMemo(() => {
+    if (statusChip === 'ALL') return batchScopedStudents;
+    return batchScopedStudents.filter((s) => {
+      const st = getStudentStatus(s, nowMs);
+      if (statusChip === 'COMPLETED') return isStudentAllFourCompleted(s);
+      if (statusChip === 'IN_PROGRESS') return isStudentInProgress(s);
+      if (statusChip === 'ACTIVE') return st === 'Active';
+      if (statusChip === 'LOCKED') {
+        return st === 'Expired' || st === 'Blocked' || st === 'Revoked';
+      }
+      if (statusChip === 'FLAGGED') return Boolean(s.flaggedDuplicate && s.blocked);
+      return true;
+    });
+  }, [batchScopedStudents, nowMs, statusChip]);
+
+  // Batch Summary Bar stats
+  const batchSummaryStats = useMemo(() => {
+    const total = batchScopedStudents.length;
+    if (total === 0) {
+      return { total: 0, completedAll: 0, avgScorePct: 0, flagged: 0 };
+    }
+    let completedAll = 0;
+    let sumPct = 0;
+    let flagged = 0;
+    for (const s of batchScopedStudents) {
+      if (isStudentAllFourCompleted(s)) completedAll += 1;
+      if (s.flaggedDuplicate && s.blocked) flagged += 1;
+      const passed = MODULE_DEFINITIONS.reduce(
+        (acc, m) => acc + (s.moduleScores?.[m.id]?.passed ?? 0),
+        0,
+      );
+      sumPct += (passed / 52) * 100;
+    }
+    return {
+      total,
+      completedAll,
+      avgScorePct: Math.round(sumPct / total),
+      flagged,
+    };
+  }, [batchScopedStudents]);
+
+  // Most-Missed Exercise Insights (aggregates wrongStepIds with 0 extra reads)
+  const mostMissedExercises = useMemo(() => {
+    const counts = new Map<
+      string,
+      { moduleId: CurriculumModuleId; modTag: string; stepId: number; count: number }
+    >();
+    const modTags: Record<CurriculumModuleId, string> = {
+      excel: 'M1 Excel',
+      sql_world: 'M2 SQL',
+      sql_ordering: 'M3 Order',
+      sql_movies: 'M4 Movies',
+    };
+    for (const s of filteredStudents) {
+      if (!s.moduleScores) continue;
+      for (const modDef of MODULE_DEFINITIONS) {
+        const wrongs = s.moduleScores[modDef.id]?.wrongStepIds;
+        if (!Array.isArray(wrongs)) continue;
+        for (const stepId of wrongs) {
+          const key = `${modDef.id}:${stepId}`;
+          const prev = counts.get(key);
+          if (prev) {
+            prev.count += 1;
+          } else {
+            counts.set(key, {
+              moduleId: modDef.id,
+              modTag: modTags[modDef.id],
+              stepId,
+              count: 1,
+            });
+          }
+        }
+      }
+    }
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count || a.stepId - b.stepId)
+      .slice(0, 4);
+  }, [filteredStudents]);
+
+  // Instant Report Verification Code lookup across ALL students x 4 modules
+  const verificationMatch = useMemo(() => {
+    const needle = normalizeVerificationCode(verifyCodeInput);
+    if (needle.length < 8) return null;
+    for (const st of students) {
+      for (const modDef of MODULE_DEFINITIONS) {
+        const sc = st.moduleScores?.[modDef.id];
+        if (!sc || (sc.attempted ?? 0) === 0) continue;
+        const code = computeVerificationCode({
+          uid: st.uid,
+          batchNumber: st.batchNumber || 'NA',
+          moduleId: modDef.id,
+          passed: sc.passed ?? 0,
+          total: sc.total ?? modDef.defaultTotal,
+          completedAt: sc.completedAt ?? null,
+        });
+        if (normalizeVerificationCode(code) === needle) {
+          return {
+            found: true as const,
+            code,
+            student: st,
+            moduleTitle: modDef.title,
+            passed: sc.passed ?? 0,
+            total: sc.total ?? modDef.defaultTotal,
+            completedAt: sc.completedAt ?? null,
+          };
+        }
+      }
+    }
+    return { found: false as const, needle };
+  }, [students, verifyCodeInput]);
 
   const hasSubModalOpen = Boolean(
     editingStudent || timeEditTarget || resetTargetStudent || deleteTarget,
@@ -535,10 +834,14 @@ export function InstructorPanel() {
         startsAt: Timestamp.fromDate(startDate),
         expiresAt: Timestamp.fromDate(endDate),
         active: true,
+        examMode: selectedExamMode,
+        archived: false,
         createdBy: user?.email || INSTRUCTOR_EMAIL,
         createdAt: serverTimestamp(),
       });
-      setPanelSuccess(`Created ${cleanCode} for Batch ${cleanBatch}.`);
+      setPanelSuccess(
+        `Created ${cleanCode} for Batch ${cleanBatch} (${selectedExamMode === 'exam' ? 'Exam Mode' : 'Practice Mode'}).`,
+      );
       setCodeInput(generateSuggestedCode(cleanBatch));
       setStartsAtInput(formatDateTimeLocal(new Date()));
     } catch (error) {
@@ -582,7 +885,136 @@ export function InstructorPanel() {
     }
   };
 
-  // Open Edit Time modal for a Class Code or an Individual Student
+  // Toggle Guided Practice vs. Exam Mode live on an existing code + its students
+  const handleToggleCodeExamMode = async (item: ClassCodeRecord) => {
+    setBusyCode(item.code);
+    setPanelError(null);
+    setPanelSuccess(null);
+    const nextMode: ExamMode = item.examMode === 'exam' ? 'practice' : 'exam';
+    try {
+      const matchingStudents = students.filter(
+        (s) => s.code === item.code && !s.blocked,
+      );
+      await Promise.all([
+        updateDoc(doc(db, 'class_codes', item.code), { examMode: nextMode }),
+        ...matchingStudents.map((st) =>
+          updateDoc(doc(db, 'enrollments', st.uid), { examMode: nextMode }),
+        ),
+      ]);
+      setPanelSuccess(
+        `Switched ${item.code} to ${nextMode === 'exam' ? 'Exam Mode (Hints Hidden)' : 'Guided Practice Mode'}.`,
+      );
+    } catch (error) {
+      const info = buildFirestoreErrorInfo(
+        error,
+        OperationType.UPDATE,
+        `class_codes/${item.code}`,
+      );
+      console.error('Firestore Error: ', JSON.stringify(info));
+      setPanelError(`Failed to switch mode for ${item.code}.`);
+    } finally {
+      setBusyCode(null);
+    }
+  };
+
+  // Archive or Unarchive a completed Class Code
+  const handleToggleCodeArchive = async (item: ClassCodeRecord) => {
+    setBusyCode(item.code);
+    setPanelError(null);
+    setPanelSuccess(null);
+    const nextArchived = !item.archived;
+    try {
+      await updateDoc(doc(db, 'class_codes', item.code), {
+        archived: nextArchived,
+      });
+      setPanelSuccess(
+        nextArchived
+          ? `Archived ${item.code} (Batch ${item.batchNumber}). Toggle "Show Archived" anytime to view it.`
+          : `Unarchived ${item.code} (Batch ${item.batchNumber}).`,
+      );
+    } catch (error) {
+      const info = buildFirestoreErrorInfo(
+        error,
+        OperationType.UPDATE,
+        `class_codes/${item.code}`,
+      );
+      console.error('Firestore Error: ', JSON.stringify(info));
+      setPanelError(`Failed to update archive status for ${item.code}.`);
+    } finally {
+      setBusyCode(null);
+    }
+  };
+
+  // Send or Clear Live Class Broadcast Banner
+  const handleSendBroadcast = async (e: FormEvent) => {
+    e.preventDefault();
+    const cleanMsg = broadcastMessage.trim().slice(0, 220);
+    if (!cleanMsg) {
+      setPanelError('Enter a broadcast message before sending.');
+      return;
+    }
+    setSavingBroadcast(true);
+    setPanelError(null);
+    setPanelSuccess(null);
+    try {
+      const now = Date.now();
+      await setDoc(doc(db, 'class_announcements', 'active'), {
+        id: `ann_${now}`,
+        message: cleanMsg,
+        targetBatch: broadcastBatch || 'ALL',
+        active: true,
+        updatedBy: user?.email || INSTRUCTOR_EMAIL,
+        updatedAtMs: now,
+        updatedAt: serverTimestamp(),
+      });
+      setBroadcastMessage('');
+      setPanelSuccess(
+        `Broadcast sent to ${broadcastBatch === 'ALL' ? 'all active students' : `Batch ${broadcastBatch}`}.`,
+      );
+    } catch (error) {
+      const info = buildFirestoreErrorInfo(
+        error,
+        OperationType.WRITE,
+        'class_announcements/active',
+      );
+      console.error('Firestore Error: ', JSON.stringify(info));
+      setPanelError(
+        'Could not send broadcast. Make sure the updated firestore.rules (with class_announcements) is published in Firebase Console.',
+      );
+    } finally {
+      setSavingBroadcast(false);
+    }
+  };
+
+  const handleClearBroadcast = async () => {
+    setSavingBroadcast(true);
+    setPanelError(null);
+    setPanelSuccess(null);
+    try {
+      await setDoc(doc(db, 'class_announcements', 'active'), {
+        id: `cleared_${Date.now()}`,
+        message: '',
+        targetBatch: 'ALL',
+        active: false,
+        updatedBy: user?.email || INSTRUCTOR_EMAIL,
+        updatedAtMs: Date.now(),
+        updatedAt: serverTimestamp(),
+      });
+      setPanelSuccess('Live broadcast banner cleared.');
+    } catch (error) {
+      const info = buildFirestoreErrorInfo(
+        error,
+        OperationType.WRITE,
+        'class_announcements/active',
+      );
+      console.error('Firestore Error: ', JSON.stringify(info));
+      setPanelError('Could not clear broadcast banner.');
+    } finally {
+      setSavingBroadcast(false);
+    }
+  };
+
+  // Open Edit Time modal for a Class Code, Individual Student, or Bulk Batch
   const openEditCodeTimeModal = (codeRecord: ClassCodeRecord) => {
     setTimeEditError(null);
     setPanelError(null);
@@ -600,6 +1032,22 @@ export function InstructorPanel() {
     setEditStartDateTime('');
     setEditEndDateTime(formatDateTimeLocal(new Date(currentExp)));
     setTimeEditTarget({ kind: 'student', student });
+  };
+
+  const openBulkBatchTimeModal = (targetBatch: string) => {
+    setTimeEditError(null);
+    setPanelError(null);
+    setPanelSuccess(null);
+    const batchCodes = codes.filter((c) => c.batchNumber === targetBatch);
+    const latestExp = batchCodes.reduce(
+      (max, c) => Math.max(max, c.expiresAt.toMillis()),
+      Date.now(),
+    );
+    setEditStartDateTime('');
+    setEditEndDateTime(
+      formatDateTimeLocal(new Date(Math.max(Date.now() + 60 * 60 * 1000, latestExp))),
+    );
+    setTimeEditTarget({ kind: 'batch', batchNumber: targetBatch });
   };
 
   const shiftEditEndByHours = (hours: number) => {
@@ -648,6 +1096,34 @@ export function InstructorPanel() {
         setPanelSuccess(
           `Updated schedule for ${codeRecord.code} (${startDate.toLocaleString()} → ${endDate.toLocaleString()}).`,
         );
+      } else if (timeEditTarget.kind === 'batch') {
+        const targetBatch = timeEditTarget.batchNumber;
+        const nextTs = Timestamp.fromDate(endDate);
+        const isFuture = endDate.getTime() > Date.now();
+        const matchingCodes = codes.filter((c) => c.batchNumber === targetBatch);
+        const matchingStudents = students.filter(
+          (s) => s.batchNumber === targetBatch && !s.blocked,
+        );
+
+        await Promise.all([
+          ...matchingCodes.map((c) =>
+            updateDoc(doc(db, 'class_codes', c.code), {
+              expiresAt: nextTs,
+              ...(isFuture ? { active: true } : {}),
+            }),
+          ),
+          ...matchingStudents.map((st) =>
+            updateDoc(doc(db, 'enrollments', st.uid), {
+              customExpiresAt: nextTs,
+              expiresAt: nextTs,
+              ...(isFuture ? { revoked: false } : {}),
+            }),
+          ),
+        ]);
+
+        setPanelSuccess(
+          `Extended Batch ${targetBatch} (${matchingCodes.length} code${matchingCodes.length === 1 ? '' : 's'} & ${matchingStudents.length} active student${matchingStudents.length === 1 ? '' : 's'}) to ${endDate.toLocaleString()}.`,
+        );
       } else {
         const { student } = timeEditTarget;
         const nextTs = Timestamp.fromDate(endDate);
@@ -666,7 +1142,9 @@ export function InstructorPanel() {
       const path =
         timeEditTarget.kind === 'code'
           ? `class_codes/${timeEditTarget.codeRecord.code}`
-          : `enrollments/${timeEditTarget.student.uid}`;
+          : timeEditTarget.kind === 'batch'
+            ? `batch/${timeEditTarget.batchNumber}`
+            : `enrollments/${timeEditTarget.student.uid}`;
       const info = buildFirestoreErrorInfo(error, OperationType.UPDATE, path);
       console.error('Firestore Error: ', JSON.stringify(info));
       setTimeEditError('Could not save the updated schedule. Please try again.');
@@ -895,18 +1373,26 @@ export function InstructorPanel() {
       'Email',
       'Batch #',
       'Status',
+      'Mode',
       'Class Code',
       'Total Passed',
       'Total Exercises',
       'Overall %',
       'M1 Excel Score',
       'M1 Completed At',
+      'M1 Verify Code',
       'M2 World SQL Score',
       'M2 Completed At',
+      'M2 Verify Code',
       'M3 Ordering Score',
       'M3 Completed At',
+      'M3 Verify Code',
       'M4 Movies Score',
       'M4 Completed At',
+      'M4 Verify Code',
+      'Active Time (min)',
+      'Tab Leaves',
+      'Large Pastes',
     ];
 
     const totalPossible = MODULE_DEFINITIONS.reduce(
@@ -931,9 +1417,22 @@ export function InstructorPanel() {
         const score = student.moduleScores?.[modDef.id];
         const passed = score?.passed ?? 0;
         const total = score?.total ?? modDef.defaultTotal;
+        const attempted = score?.attempted ?? 0;
         totalPassed += passed;
         modCells.push(`${passed}/${total}`);
         modCells.push(formatCompletionTimestamp(score?.completedAt));
+        modCells.push(
+          attempted > 0
+            ? computeVerificationCode({
+                uid: student.uid,
+                batchNumber: student.batchNumber || 'NA',
+                moduleId: modDef.id,
+                passed,
+                total,
+                completedAt: score?.completedAt ?? null,
+              })
+            : '',
+        );
       }
 
       const overallPct =
@@ -944,11 +1443,15 @@ export function InstructorPanel() {
         student.email,
         student.batchNumber || 'N/A',
         status,
+        student.examMode === 'exam' ? 'Exam' : 'Practice',
         student.code || '',
         totalPassed,
         totalPossible,
         `${overallPct}%`,
         ...modCells,
+        getStudentTotalDurationMinutes(student),
+        student.auditMetrics?.tabSwitches ?? 0,
+        student.auditMetrics?.largePastes ?? 0,
       ];
 
       lines.push(row.map(escapeCsvCell).join(','));
@@ -1184,9 +1687,28 @@ export function InstructorPanel() {
                 </div>
               </LayoutGroup>
 
-              <div className="flex items-center gap-2.5 ml-auto">
+              <div className="flex items-center gap-2 ml-auto">
+                <motion.button
+                  type="button"
+                  whileTap={M3_TAP_PRESS}
+                  transition={M3_SPRING_FAST_SPATIAL}
+                  onClick={() => setBroadcastOpen((v) => !v)}
+                  className={`no-ripple inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                    liveAnnouncement?.active
+                      ? 'border-blue-400/60 bg-blue-50 dark:bg-blue-950/45 text-blue-700 dark:text-blue-300'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-[#131a27] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Send a live broadcast banner to connected students"
+                >
+                  <i className="ph ph-megaphone text-sm" aria-hidden="true" />
+                  <span>Broadcast</span>
+                  {liveAnnouncement?.active && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                </motion.button>
+
                 {lastSyncedAt && (
-                  <span className="hidden sm:inline-block text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  <span className="hidden md:inline-block text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                     Synced{' '}
                     {lastSyncedAt.toLocaleTimeString([], {
                       hour: '2-digit',
@@ -1212,6 +1734,73 @@ export function InstructorPanel() {
                 </motion.button>
               </div>
             </div>
+
+            {/* Collapsible Live Class Broadcast Bar */}
+            <AnimatePresence>
+              {broadcastOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={M3_SPRING_FAST_SPATIAL}
+                  className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-blue-50/70 dark:bg-blue-950/25 space-y-2 shrink-0"
+                >
+                  <form
+                    onSubmit={handleSendBroadcast}
+                    className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
+                  >
+                    <select
+                      value={broadcastBatch}
+                      onChange={(e) => setBroadcastBatch(e.target.value)}
+                      className="no-ripple px-2.5 py-2 rounded-xl bg-white dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    >
+                      <option value="ALL">All Batches</option>
+                      {distinctBatches.map((b) => (
+                        <option key={b} value={b}>
+                          Batch {b}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      maxLength={220}
+                      value={broadcastMessage}
+                      onChange={(e) => setBroadcastMessage(e.target.value)}
+                      placeholder="Type a live announcement (e.g., 10 minutes remaining — export PDFs when finished)…"
+                      className="no-ripple flex-1 px-3 py-2 rounded-xl bg-white dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    />
+                    <motion.button
+                      type="submit"
+                      whileTap={M3_TAP_PRESS}
+                      transition={M3_SPRING_FAST_SPATIAL}
+                      disabled={savingBroadcast || !broadcastMessage.trim()}
+                      className="no-ripple px-3.5 py-2 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {savingBroadcast ? 'Sending…' : 'Send Broadcast'}
+                    </motion.button>
+                  </form>
+
+                  {liveAnnouncement?.active && (
+                    <div className="flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-[#0f1623] border border-blue-200/80 dark:border-blue-800/60 text-[11px]">
+                      <div className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 mr-1.5">
+                          ● LIVE ({liveAnnouncement.targetBatch === 'ALL' ? 'All Batches' : `Batch ${liveAnnouncement.targetBatch}`}):
+                        </span>
+                        {liveAnnouncement.message}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={savingBroadcast}
+                        onClick={() => void handleClearBroadcast()}
+                        className="no-ripple shrink-0 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Status Alerts */}
             <AnimatePresence>
@@ -1388,7 +1977,38 @@ export function InstructorPanel() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end">
+                    {/* Assessment Mode Selector + Create Button */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          Session Mode:
+                        </span>
+                        <div className="inline-flex rounded-xl p-0.5 bg-slate-100 dark:bg-[#0c111b] border border-slate-200 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedExamMode('practice')}
+                            className={`no-ripple px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                              selectedExamMode === 'practice'
+                                ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-300 shadow-xs'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            Guided Practice (Hints On)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedExamMode('exam')}
+                            className={`no-ripple px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                              selectedExamMode === 'exam'
+                                ? 'bg-amber-500 text-amber-950 shadow-xs'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            Graded Exam (Hints Hidden)
+                          </button>
+                        </div>
+                      </div>
+
                       <motion.button
                         type="submit"
                         whileHover={{ scale: 1.02, y: -1 }}
@@ -1404,26 +2024,41 @@ export function InstructorPanel() {
 
                   {/* Existing Class Codes List */}
                   <div className="px-6 py-5 space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                         Class Access Codes
                       </h3>
-                      <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                        {codes.length} total
-                      </span>
+                      <div className="flex items-center gap-3 text-xs">
+                        {archivedCodesCount > 0 && (
+                          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={showArchived}
+                              onChange={(e) => setShowArchived(e.target.checked)}
+                              className="rounded accent-blue-600"
+                            />
+                            <span>Show Archived ({archivedCodesCount})</span>
+                          </label>
+                        )}
+                        <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                          {visibleCodes.length} shown
+                        </span>
+                      </div>
                     </div>
 
                     {loadingCodes ? (
                       <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
                         Loading class codes…
                       </div>
-                    ) : codes.length === 0 ? (
+                    ) : visibleCodes.length === 0 ? (
                       <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                        No class codes created yet. Generate your first batch code above.
+                        {archivedCodesCount > 0
+                          ? 'All class codes are archived. Check "Show Archived" above to view past batches.'
+                          : 'No class codes created yet. Generate your first batch code above.'}
                       </div>
                     ) : (
                       <div className="divide-y divide-slate-200/80 dark:divide-slate-800/80 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                        {codes.map((item) => {
+                        {visibleCodes.map((item) => {
                           const startMs = item.startsAt.toMillis();
                           const endMs = item.expiresAt.toMillis();
                           const statusLabel = !item.active
@@ -1442,14 +2077,17 @@ export function InstructorPanel() {
                                   ? 'text-rose-600 dark:text-rose-400'
                                   : 'text-amber-600 dark:text-amber-400';
                           const isBusy = busyCode === item.code;
+                          const isExam = item.examMode === 'exam';
 
                           return (
                             <div
                               key={item.code}
-                              className="px-4 py-3.5 bg-white dark:bg-[#0f1623] flex flex-col md:flex-row md:items-center justify-between gap-3"
+                              className={`px-4 py-3.5 bg-white dark:bg-[#0f1623] flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                                item.archived ? 'opacity-70' : ''
+                              }`}
                             >
                               <div className="space-y-1 min-w-0">
-                                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                   <span className="font-mono font-extrabold text-sm text-slate-900 dark:text-white tracking-wide">
                                     {item.code}
                                   </span>
@@ -1461,6 +2099,25 @@ export function InstructorPanel() {
                                   <span className={`text-xs font-bold ${statusColorClass}`}>
                                     {statusLabel}
                                   </span>
+                                  <span className="text-xs text-slate-400" aria-hidden="true">·</span>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => void handleToggleCodeExamMode(item)}
+                                    title="Click to switch between Practice Mode and Exam Mode (Hints Hidden)"
+                                    className={`no-ripple px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                      isExam
+                                        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/40 hover:bg-amber-500/25'
+                                        : 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-400/30 hover:bg-sky-500/20'
+                                    }`}
+                                  >
+                                    {isExam ? 'Exam · No Hints' : 'Practice'}
+                                  </button>
+                                  {item.archived && (
+                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                      Archived
+                                    </span>
+                                  )}
                                   {statusLabel === 'Active' && (
                                     <>
                                       <span className="text-xs text-slate-400" aria-hidden="true">·</span>
@@ -1497,7 +2154,7 @@ export function InstructorPanel() {
                                     aria-hidden="true"
                                   />
                                   <span>
-                                    {copiedCode === item.code ? 'Copied Code' : 'Copy Code'}
+                                    {copiedCode === item.code ? 'Copied' : 'Copy Code'}
                                   </span>
                                 </motion.button>
                                 <motion.button
@@ -1507,10 +2164,22 @@ export function InstructorPanel() {
                                   disabled={isBusy}
                                   onClick={() => openEditCodeTimeModal(item)}
                                   className="no-ripple inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                                  title="Edit start and expiration date/time"
+                                  title="Edit start and expiration date/time for this code"
                                 >
                                   <i className="ph ph-clock text-xs" aria-hidden="true" />
                                   <span>Edit Time</span>
+                                </motion.button>
+                                <motion.button
+                                  type="button"
+                                  whileTap={M3_TAP_PRESS}
+                                  transition={M3_SPRING_FAST_SPATIAL}
+                                  disabled={isBusy}
+                                  onClick={() => openBulkBatchTimeModal(item.batchNumber)}
+                                  className="no-ripple inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                                  title={`Extend expiry for ALL active students and codes in Batch ${item.batchNumber}`}
+                                >
+                                  <i className="ph ph-clock-clockwise text-xs" aria-hidden="true" />
+                                  <span>Extend Batch</span>
                                 </motion.button>
                                 <motion.button
                                   type="button"
@@ -1525,6 +2194,18 @@ export function InstructorPanel() {
                                   }`}
                                 >
                                   {item.active ? 'Revoke' : 'Reactivate'}
+                                </motion.button>
+                                <motion.button
+                                  type="button"
+                                  whileTap={M3_TAP_PRESS}
+                                  transition={M3_SPRING_FAST_SPATIAL}
+                                  disabled={isBusy}
+                                  onClick={() => void handleToggleCodeArchive(item)}
+                                  className="no-ripple inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                                  title={item.archived ? 'Restore from archive' : 'Archive completed batch code'}
+                                >
+                                  <i className="ph ph-archive text-xs" aria-hidden="true" />
+                                  <span>{item.archived ? 'Unarchive' : 'Archive'}</span>
                                 </motion.button>
                                 <motion.button
                                   type="button"
@@ -1553,9 +2234,9 @@ export function InstructorPanel() {
               ) : (
                 /* TAB 2: REGISTERED STUDENTS */
                 <div className="px-6 py-5 space-y-4">
-                  {/* Filter Bar + Export Batch CSV + Delete Batch */}
+                  {/* Filter Bar + Export Batch CSV + Extend Batch + Delete Batch */}
                   <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 flex-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1">
                       <input
                         type="search"
                         value={studentSearch}
@@ -1563,34 +2244,34 @@ export function InstructorPanel() {
                         placeholder="Search name, email, or code…"
                         className="no-ripple px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                       />
-                      <select
-                        value={batchFilter}
-                        onChange={(e) => setBatchFilter(e.target.value)}
-                        className="no-ripple px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                      >
-                        <option value="ALL">All Batches</option>
-                        {distinctBatches.map((b) => (
-                          <option key={b} value={b}>
-                            Batch {b}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="no-ripple px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                      >
-                        <option value="ALL">All Statuses</option>
-                        <option value="Active">Active</option>
-                        <option value="Flagged · Duplicate">Flagged · Duplicate</option>
-                        <option value="Blocked">Blocked</option>
-                        <option value="Revoked">Revoked</option>
-                        <option value="Expired">Expired</option>
-                        <option value="Pending Profile">Pending Profile</option>
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={batchFilter}
+                          onChange={(e) => setBatchFilter(e.target.value)}
+                          className="no-ripple flex-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#0c111b] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                        >
+                          <option value="ALL">All Active Batches</option>
+                          {distinctBatches.map((b) => (
+                            <option key={b} value={b}>
+                              Batch {b}
+                            </option>
+                          ))}
+                        </select>
+                        {archivedCodesCount > 0 && (
+                          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer shrink-0 select-none">
+                            <input
+                              type="checkbox"
+                              checked={showArchived}
+                              onChange={(e) => setShowArchived(e.target.checked)}
+                              className="rounded accent-blue-600"
+                            />
+                            <span>Archived</span>
+                          </label>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
                       <motion.button
                         type="button"
                         whileTap={M3_TAP_PRESS}
@@ -1598,7 +2279,7 @@ export function InstructorPanel() {
                         disabled={filteredStudents.length === 0}
                         onClick={handleExportBatchCsv}
                         className="no-ripple flex-1 lg:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                        title="Download CSV gradebook for the currently filtered students"
+                        title="Download CSV gradebook (includes scores, verification codes, and audit metrics)"
                       >
                         <i className="ph ph-file-csv text-sm" aria-hidden="true" />
                         <span>
@@ -1609,24 +2290,205 @@ export function InstructorPanel() {
                       </motion.button>
 
                       {batchFilter !== 'ALL' && (
-                        <motion.button
+                        <>
+                          <motion.button
+                            type="button"
+                            whileTap={M3_TAP_PRESS}
+                            transition={M3_SPRING_FAST_SPATIAL}
+                            onClick={() => openBulkBatchTimeModal(batchFilter)}
+                            className="no-ripple inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer whitespace-nowrap"
+                            title={`Bulk extend expiration time for all active students in Batch ${batchFilter}`}
+                          >
+                            <i className="ph ph-clock-clockwise text-sm" aria-hidden="true" />
+                            <span>Extend Batch</span>
+                          </motion.button>
+                          <motion.button
+                            type="button"
+                            whileTap={M3_TAP_PRESS}
+                            transition={M3_SPRING_FAST_SPATIAL}
+                            onClick={() => {
+                              setPanelError(null);
+                              setPanelSuccess(null);
+                              setDeleteTarget({
+                                kind: 'batch',
+                                batchNumber: batchFilter,
+                              });
+                            }}
+                            className="no-ripple inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer whitespace-nowrap"
+                            title={`Delete Batch ${batchFilter} students and codes`}
+                          >
+                            <i className="ph ph-trash text-sm" aria-hidden="true" />
+                            <span>Delete Batch</span>
+                          </motion.button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Interactive Status Filter Chips */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(
+                      [
+                        { key: 'ALL', label: 'All' },
+                        { key: 'COMPLETED', label: 'Completed 4/4' },
+                        { key: 'IN_PROGRESS', label: 'In Progress' },
+                        { key: 'ACTIVE', label: 'Active' },
+                        { key: 'LOCKED', label: 'Expired / Locked' },
+                        { key: 'FLAGGED', label: 'Flagged' },
+                      ] as Array<{ key: StatusChipKey; label: string }>
+                    ).map((chip) => {
+                      const active = statusChip === chip.key;
+                      const count = statusChipCounts[chip.key];
+                      return (
+                        <button
+                          key={chip.key}
                           type="button"
-                          whileTap={M3_TAP_PRESS}
-                          transition={M3_SPRING_FAST_SPATIAL}
-                          onClick={() => {
-                            setPanelError(null);
-                            setPanelSuccess(null);
-                            setDeleteTarget({
-                              kind: 'batch',
-                              batchNumber: batchFilter,
-                            });
-                          }}
-                          className="no-ripple inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer whitespace-nowrap"
-                          title={`Delete Batch ${batchFilter} students and codes`}
+                          onClick={() => setStatusChip(chip.key)}
+                          className={`no-ripple inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : chip.key === 'FLAGGED' && count > 0
+                                ? 'bg-rose-50 dark:bg-rose-950/35 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/45'
+                                : 'bg-slate-50 dark:bg-[#0c111b] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
                         >
-                          <i className="ph ph-trash text-sm" aria-hidden="true" />
-                          <span>Delete Batch {batchFilter}</span>
-                        </motion.button>
+                          <span>{chip.label}</span>
+                          <span className="font-mono text-[10px] opacity-85 tabular-nums">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Batch Summary Bar */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-[#0c111b]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Registered
+                      </div>
+                      <div className="text-lg font-extrabold font-mono tabular-nums text-slate-900 dark:text-white">
+                        {batchSummaryStats.total}
+                      </div>
+                    </div>
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-[#0c111b]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Finished 4/4
+                      </div>
+                      <div className="text-lg font-extrabold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {batchSummaryStats.completedAll}
+                      </div>
+                    </div>
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-[#0c111b]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Avg Score
+                      </div>
+                      <div className="text-lg font-extrabold font-mono tabular-nums text-blue-600 dark:text-blue-400">
+                        {batchSummaryStats.avgScorePct}%
+                      </div>
+                    </div>
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-[#0c111b]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Flagged
+                      </div>
+                      <div
+                        className={`text-lg font-extrabold font-mono tabular-nums ${
+                          batchSummaryStats.flagged > 0
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {batchSummaryStats.flagged}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Most-Missed Exercise Insights + Verify Certificate Code */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-[#0c111b] space-y-1.5">
+                      <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <i className="ph ph-chart-line-down text-rose-500 text-xs" aria-hidden="true" />
+                        <span>Most-Missed Exercises (Filtered View)</span>
+                      </div>
+                      {mostMissedExercises.length === 0 ? (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          No incorrect submissions recorded yet in this view.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {mostMissedExercises.map((item) => (
+                            <span
+                              key={`${item.moduleId}-${item.stepId}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-mono font-semibold bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300"
+                            >
+                              <span>
+                                {item.modTag} #{item.stepId}
+                              </span>
+                              <span className="opacity-75">
+                                ({item.count} missed)
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-[#0c111b] space-y-1.5">
+                      <label
+                        htmlFor="verifyCertCodeInput"
+                        className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5"
+                      >
+                        <i className="ph ph-seal-check text-blue-500 text-xs" aria-hidden="true" />
+                        <span>Verify PDF / PNG Certificate Code</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          id="verifyCertCodeInput"
+                          type="text"
+                          value={verifyCodeInput}
+                          onChange={(e) => setVerifyCodeInput(e.target.value)}
+                          placeholder="Paste code e.g. DA101-M2-B101-7F3A9C"
+                          className="no-ripple flex-1 px-2.5 py-1.5 rounded-lg font-mono text-[11px] uppercase bg-white dark:bg-[#131a27] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                        />
+                        {verifyCodeInput && (
+                          <button
+                            type="button"
+                            onClick={() => setVerifyCodeInput('')}
+                            className="no-ripple px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      {verificationMatch && (
+                        <div
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] border ${
+                            verificationMatch.found
+                              ? 'bg-emerald-50 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-700/60 text-emerald-800 dark:text-emerald-200'
+                              : 'bg-amber-50 dark:bg-amber-950/35 border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200'
+                          }`}
+                        >
+                          {verificationMatch.found ? (
+                            <span>
+                              <strong>Verified Authentic:</strong>{' '}
+                              {verificationMatch.student.fullName ||
+                                verificationMatch.student.email}{' '}
+                              (Batch {verificationMatch.student.batchNumber}) ·{' '}
+                              {verificationMatch.moduleTitle} ·{' '}
+                              <strong className="font-mono">
+                                {verificationMatch.passed}/{verificationMatch.total}
+                              </strong>
+                            </span>
+                          ) : (
+                            <span>
+                              No matching student record found for{' '}
+                              <strong className="font-mono">
+                                {verificationMatch.needle}
+                              </strong>
+                              . Score or student details may have been altered.
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1660,6 +2522,9 @@ export function InstructorPanel() {
                             acc + (student.moduleScores?.[mod.id]?.passed ?? 0),
                           0,
                         );
+                        const activeMinutes = getStudentTotalDurationMinutes(student);
+                        const tabLeaves = student.auditMetrics?.tabSwitches ?? 0;
+                        const largePastes = student.auditMetrics?.largePastes ?? 0;
 
                         const statusColor =
                           status === 'Active'
@@ -1692,6 +2557,11 @@ export function InstructorPanel() {
                                 <span className="text-xs font-mono font-bold tabular-nums text-slate-700 dark:text-slate-200">
                                   Total: {passedTotal}/52
                                 </span>
+                                {student.examMode === 'exam' && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-400/35">
+                                    Exam
+                                  </span>
+                                )}
                               </div>
 
                               <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -1705,6 +2575,17 @@ export function InstructorPanel() {
                                 >
                                   {formatRemaining(effExpiry, nowMs)}
                                 </span>
+                                {(activeMinutes > 0 || tabLeaves > 0 || largePastes > 0) && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span
+                                      className="font-mono text-[10px] text-slate-400 dark:text-slate-500 tabular-nums"
+                                      title="Passive session activity log (non-punitive)"
+                                    >
+                                      Active {activeMinutes}m · Tab leaves {tabLeaves} · Pastes {largePastes}
+                                    </span>
+                                  </>
+                                )}
                               </div>
 
                               {/* Per-Module Live Scores & Completion Timestamps */}
@@ -2006,12 +2887,16 @@ export function InstructorPanel() {
                     >
                       {timeEditTarget.kind === 'code'
                         ? `Edit Schedule — ${timeEditTarget.codeRecord.code}`
-                        : 'Edit Student Access Expiry'}
+                        : timeEditTarget.kind === 'batch'
+                          ? `Bulk Extend Batch ${timeEditTarget.batchNumber}`
+                          : 'Edit Student Access Expiry'}
                     </h3>
                     <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
                       {timeEditTarget.kind === 'code'
                         ? `Batch ${timeEditTarget.codeRecord.batchNumber}`
-                        : `${timeEditTarget.student.fullName || timeEditTarget.student.email} · Batch ${timeEditTarget.student.batchNumber || 'N/A'}`}
+                        : timeEditTarget.kind === 'batch'
+                          ? 'Updates all class codes & non-blocked students in this batch'
+                          : `${timeEditTarget.student.fullName || timeEditTarget.student.email} · Batch ${timeEditTarget.student.batchNumber || 'N/A'}`}
                     </p>
                   </div>
 

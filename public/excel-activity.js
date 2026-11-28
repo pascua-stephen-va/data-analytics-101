@@ -2748,8 +2748,9 @@
     }
   };
 
-  // Toggle hint
+  // Toggle hint (blocked in Graded Exam Mode)
   window.toggleExcelHint = function() {
+    if (window.__DA101_ACCESS__ && window.__DA101_ACCESS__.examMode === 'exam') return;
     const hintBox = document.getElementById('excelTaskHintBox');
     if (hintBox) {
       hintBox.classList.toggle('hidden');
@@ -4093,8 +4094,8 @@
           <div>Virtual Assistant Services Level III &bull; Certified Microsoft Excel Data Transformation &amp; Analysis</div>
         </div>
         <div style="text-align: right;">
-          <div style="font-family: monospace; font-weight: 700; color: #0f172a;">DocID: EXCEL-MOD01-${escapeHtml(batchNumber)}-${Date.now().toString().slice(-6)}</div>
-          <div style="color: #15803d; font-weight: 700;">✓ Cryptographically Verified In-Browser Result</div>
+          <div style="font-family: monospace; font-weight: 700; color: #0f172a;">Verify: ${escapeHtml(typeof window.getModuleVerificationCode === 'function' ? window.getModuleVerificationCode('excel') : `EXCEL-MOD01-${batchNumber}`)}</div>
+          <div style="color: #15803d; font-weight: 700;">✓ Official Verified Result</div>
         </div>
       </div>
     `;

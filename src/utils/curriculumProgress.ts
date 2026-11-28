@@ -33,6 +33,10 @@ export interface ModuleProgressItem extends ModuleDefinition {
   percentage: number;
   status: 'Completed' | 'In Progress' | 'Not Started';
   completedAt: number | null;
+  completedIds: number[];
+  wrongIds: number[];
+  activeExercise: number;
+  nextExerciseNumber: number | null;
 }
 
 export interface CurriculumSummary {
@@ -106,6 +110,7 @@ declare global {
     excelState?: {
       completedTasks?: Set<number>;
       wrongTasks?: Set<number>;
+      currentTaskIdx?: number;
       completedAt?: number | null;
     };
     EXERCISES_20?: Array<unknown>;
@@ -118,6 +123,11 @@ declare global {
     reloadSqlWorldStateFromStorage?: () => void;
     reloadOrderingStateFromStorage?: () => void;
     reloadMoviesStateFromStorage?: () => void;
+    selectExcelTask?: (idx: number) => void;
+    selectStep?: (stepId: number) => void;
+    selectOrderingStep?: (stepId: number) => void;
+    selectMoviesStep?: (stepId: number) => void;
+    getModuleVerificationCode?: (moduleId: CurriculumModuleId) => string;
   }
 }
 
@@ -130,17 +140,54 @@ function safeParseJson<T>(raw: string | null): T | null {
   }
 }
 
-function uniqueArrayLength(val: unknown): number {
-  if (val instanceof Set) return val.size;
-  if (Array.isArray(val)) return new Set(val).size;
-  return 0;
+function toUniqueNormalizedIds(val: unknown, offset = 0, maxVal = 50): number[] {
+  const rawList = val instanceof Set ? Array.from(val) : Array.isArray(val) ? val : [];
+  const seen = new Set<number>();
+  for (const item of rawList) {
+    const num = Number(item) + offset;
+    if (Number.isInteger(num) && num >= 1 && num <= maxVal) {
+      seen.add(num);
+    }
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
+function computeNextExercise(
+  completedIds: number[],
+  wrongIds: number[],
+  total: number,
+): number | null {
+  const doneSet = new Set<number>([...completedIds, ...wrongIds]);
+  if (completedIds.length >= total) return null;
+  for (let i = 1; i <= total; i++) {
+    if (!doneSet.has(i)) return i;
+  }
+  // If all attempted but some wrong, point to first wrong exercise
+  if (wrongIds.length > 0) return wrongIds[0];
+  return null;
 }
 
 function readModuleCounts(
   def: ModuleDefinition,
-): { passed: number; wrong: number; total: number; completedAt: number | null } {
+): {
+  passed: number;
+  wrong: number;
+  total: number;
+  completedAt: number | null;
+  completedIds: number[];
+  wrongIds: number[];
+  activeExercise: number;
+} {
   if (typeof window === 'undefined') {
-    return { passed: 0, wrong: 0, total: def.defaultTotal, completedAt: null };
+    return {
+      passed: 0,
+      wrong: 0,
+      total: def.defaultTotal,
+      completedAt: null,
+      completedIds: [],
+      wrongIds: [],
+      activeExercise: 1,
+    };
   }
 
   try {
@@ -153,15 +200,23 @@ function readModuleCounts(
       const saved = safeParseJson<{
         completedTasks?: unknown[];
         wrongTasks?: unknown[];
+        currentTaskIdx?: number;
         completedAt?: number | null;
       }>(getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.excel));
 
       if (window.excelState?.completedTasks instanceof Set && window.__DA101_ACTIVE_UID__) {
-        const passed = Math.min(total, window.excelState.completedTasks.size);
-        const wrong =
-          window.excelState.wrongTasks instanceof Set
-            ? Math.min(total - passed, window.excelState.wrongTasks.size)
-            : 0;
+        // Excel tasks are 0-indexed internally -> normalize to 1-indexed exercise numbers
+        const completedIds = toUniqueNormalizedIds(window.excelState.completedTasks, 1, total);
+        const completedSet = new Set(completedIds);
+        const wrongIds = toUniqueNormalizedIds(window.excelState.wrongTasks, 1, total).filter(
+          (id) => !completedSet.has(id),
+        );
+        const passed = completedIds.length;
+        const wrong = wrongIds.length;
+        const activeExercise = Math.min(
+          total,
+          Math.max(1, (window.excelState.currentTaskIdx ?? 0) + 1),
+        );
         const completedAt =
           passed >= total
             ? (typeof window.excelState.completedAt === 'number'
@@ -170,16 +225,25 @@ function readModuleCounts(
                   ? saved.completedAt
                   : null)
             : null;
-        return { passed, wrong, total, completedAt };
+        return { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise };
       }
 
-      const passed = Math.min(total, uniqueArrayLength(saved?.completedTasks));
-      const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongTasks));
+      const completedIds = toUniqueNormalizedIds(saved?.completedTasks, 1, total);
+      const completedSet = new Set(completedIds);
+      const wrongIds = toUniqueNormalizedIds(saved?.wrongTasks, 1, total).filter(
+        (id) => !completedSet.has(id),
+      );
+      const passed = completedIds.length;
+      const wrong = wrongIds.length;
+      const activeExercise = Math.min(
+        total,
+        Math.max(1, (typeof saved?.currentTaskIdx === 'number' ? saved.currentTaskIdx : 0) + 1),
+      );
       const completedAt =
         passed >= total && typeof saved?.completedAt === 'number'
           ? saved.completedAt
           : null;
-      return { passed, wrong, total, completedAt };
+      return { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise };
     }
 
     if (def.id === 'sql_world') {
@@ -190,16 +254,23 @@ function readModuleCounts(
       const wrongArr = safeParseJson<unknown[]>(
         getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldWrong),
       );
+      const activeRaw = getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldActive);
       const meta = safeParseJson<{ completedAt?: number | null }>(
         getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldMeta),
       );
-      const passed = Math.min(total, uniqueArrayLength(completed));
-      const wrong = Math.min(total - passed, uniqueArrayLength(wrongArr));
+      const completedIds = toUniqueNormalizedIds(completed, 0, total);
+      const completedSet = new Set(completedIds);
+      const wrongIds = toUniqueNormalizedIds(wrongArr, 0, total).filter(
+        (id) => !completedSet.has(id),
+      );
+      const passed = completedIds.length;
+      const wrong = wrongIds.length;
+      const activeExercise = Math.min(total, Math.max(1, parseInt(activeRaw || '1', 10) || 1));
       const completedAt =
         passed >= total && typeof meta?.completedAt === 'number'
           ? meta.completedAt
           : null;
-      return { passed, wrong, total, completedAt };
+      return { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise };
     }
 
     if (def.id === 'sql_ordering') {
@@ -207,15 +278,25 @@ function readModuleCounts(
       const saved = safeParseJson<{
         completedSteps?: unknown[];
         wrongSteps?: unknown[];
+        activeStep?: number;
         completedAt?: number | null;
       }>(getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlOrdering));
-      const passed = Math.min(total, uniqueArrayLength(saved?.completedSteps));
-      const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongSteps));
+      const completedIds = toUniqueNormalizedIds(saved?.completedSteps, 0, total);
+      const completedSet = new Set(completedIds);
+      const wrongIds = toUniqueNormalizedIds(saved?.wrongSteps, 0, total).filter(
+        (id) => !completedSet.has(id),
+      );
+      const passed = completedIds.length;
+      const wrong = wrongIds.length;
+      const activeExercise = Math.min(
+        total,
+        Math.max(1, typeof saved?.activeStep === 'number' ? saved.activeStep : 1),
+      );
       const completedAt =
         passed >= total && typeof saved?.completedAt === 'number'
           ? saved.completedAt
           : null;
-      return { passed, wrong, total, completedAt };
+      return { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise };
     }
 
     if (def.id === 'sql_movies') {
@@ -224,30 +305,50 @@ function readModuleCounts(
       const saved = safeParseJson<{
         completedSteps?: unknown[];
         wrongSteps?: unknown[];
+        activeStep?: number;
         completedAt?: number | null;
       }>(raw);
-      const passed = Math.min(total, uniqueArrayLength(saved?.completedSteps));
-      const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongSteps));
+      const completedIds = toUniqueNormalizedIds(saved?.completedSteps, 0, total);
+      const completedSet = new Set(completedIds);
+      const wrongIds = toUniqueNormalizedIds(saved?.wrongSteps, 0, total).filter(
+        (id) => !completedSet.has(id),
+      );
+      const passed = completedIds.length;
+      const wrong = wrongIds.length;
+      const activeExercise = Math.min(
+        total,
+        Math.max(1, typeof saved?.activeStep === 'number' ? saved.activeStep : 1),
+      );
       const completedAt =
         passed >= total && typeof saved?.completedAt === 'number'
           ? saved.completedAt
           : null;
-      return { passed, wrong, total, completedAt };
+      return { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise };
     }
   } catch {
     // Fallback to zeroed progress if storage is restricted
   }
 
-  return { passed: 0, wrong: 0, total: def.defaultTotal, completedAt: null };
+  return {
+    passed: 0,
+    wrong: 0,
+    total: def.defaultTotal,
+    completedAt: null,
+    completedIds: [],
+    wrongIds: [],
+    activeExercise: 1,
+  };
 }
 
 export function readCurriculumProgress(): CurriculumSummary {
   const modules: ModuleProgressItem[] = MODULE_DEFINITIONS.map((def) => {
-    const { passed, wrong, total, completedAt } = readModuleCounts(def);
+    const { passed, wrong, total, completedAt, completedIds, wrongIds, activeExercise } =
+      readModuleCounts(def);
     const attempted = Math.min(total, passed + wrong);
     const percentage = total > 0 ? Math.round((passed / total) * 100) : 0;
     const status: ModuleProgressItem['status'] =
       passed >= total && total > 0 ? 'Completed' : attempted > 0 ? 'In Progress' : 'Not Started';
+    const nextExerciseNumber = computeNextExercise(completedIds, wrongIds, total);
 
     return {
       ...def,
@@ -258,6 +359,10 @@ export function readCurriculumProgress(): CurriculumSummary {
       percentage,
       status,
       completedAt,
+      completedIds,
+      wrongIds,
+      activeExercise,
+      nextExerciseNumber,
     };
   });
 

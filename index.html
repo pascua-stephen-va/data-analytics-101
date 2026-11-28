@@ -2511,6 +2511,92 @@
       border-color: #065f46 !important;
       color: #a7f3d0 !important;
     }
+
+    /* ============================================================ */
+    /* DRAGGABLE SPLIT-PANE DIVIDERS (DESKTOP >= 768px)             */
+    /* ============================================================ */
+    .da-split-handle {
+      position: relative;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      user-select: none;
+      touch-action: none;
+      transition: background-color 150ms ease;
+    }
+    .da-split-handle-h {
+      width: 6px;
+      cursor: col-resize;
+      background-color: rgba(148, 163, 184, 0.22);
+    }
+    .dark .da-split-handle-h {
+      background-color: rgba(51, 65, 85, 0.55);
+    }
+    .da-split-handle-v {
+      height: 6px;
+      cursor: row-resize;
+      background-color: rgba(148, 163, 184, 0.24);
+    }
+    .dark .da-split-handle-v {
+      background-color: rgba(51, 65, 85, 0.6);
+    }
+    .da-split-handle:hover,
+    .da-split-handle:focus-visible,
+    .da-split-handle.is-dragging {
+      background-color: rgba(59, 130, 246, 0.55);
+      outline: none;
+    }
+    .da-split-grip-v {
+      width: 2px;
+      height: 28px;
+      border-radius: 9999px;
+      background-color: rgba(100, 116, 139, 0.55);
+      transition: background-color 150ms ease, transform 150ms ease;
+    }
+    .da-split-grip-h {
+      height: 2px;
+      width: 32px;
+      border-radius: 9999px;
+      background-color: rgba(100, 116, 139, 0.55);
+      transition: background-color 150ms ease, transform 150ms ease;
+    }
+    .da-split-handle:hover .da-split-grip-v,
+    .da-split-handle.is-dragging .da-split-grip-v,
+    .da-split-handle:hover .da-split-grip-h,
+    .da-split-handle.is-dragging .da-split-grip-h {
+      background-color: #ffffff;
+    }
+    body.da-resizing-col,
+    body.da-resizing-col * {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+    body.da-resizing-row,
+    body.da-resizing-row * {
+      cursor: row-resize !important;
+      user-select: none !important;
+    }
+    @media (max-width: 767px) {
+      .da-split-handle-h {
+        display: none !important;
+      }
+    }
+
+    /* ============================================================ */
+    /* GRADED EXAM MODE: HIDE ALL EXERCISE HINTS                    */
+    /* ============================================================ */
+    html.da-exam-mode button[onclick*="toggleExcelHint"],
+    html.da-exam-mode button[onclick*="toggleStepHint"],
+    html.da-exam-mode button[onclick*="toggleOrderingHint"],
+    html.da-exam-mode button[onclick*="toggleMoviesHint"],
+    html.da-exam-mode #excelTaskHintBox,
+    html.da-exam-mode [id^="step-hint-box-"],
+    html.da-exam-mode [id^="ordering-hint-box-"],
+    html.da-exam-mode [id^="movies-hint-box-"] {
+      display: none !important;
+    }
   </style>
 </head>
 <body class="bg-slate-50 dark:bg-[#12161f] text-slate-800 dark:text-slate-100 h-screen flex flex-col overflow-hidden transition-colors duration-200">
@@ -3090,7 +3176,7 @@
   </header>
 
   <!-- Split Layout: 40% Left / 60% Right on Desktop -->
-  <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
+  <div id="sqlWorldSplitContainer" class="flex-1 flex flex-col md:flex-row overflow-hidden">
 
     <!-- Left Column (40% width) -->
     <div id="leftColumn" class="w-full md:w-5/12 lg:w-4/12 bg-[#f4f6fa] dark:bg-[#0f141f] border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 flex flex-col overflow-hidden shrink-0">
@@ -3109,6 +3195,9 @@
           </button>
         </div>
       </div>
+
+      <!-- Visual Exercise Progress Dot Strip -->
+      <div class="lab-dots-slot" data-dots-lab="sql_world"></div>
 
       <!-- Tab Panels Container -->
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
@@ -3314,7 +3403,7 @@
       </div>
 
       <!-- Top Half: SQL Editor -->
-      <div class="h-1/2 flex flex-col border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1017] relative">
+      <div id="sqlWorldEditorHalf" class="h-1/2 flex flex-col border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1017] relative">
         <div class="bg-[#f8fafc] dark:bg-[#111726] border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
           <div class="flex items-center space-x-2 text-xs font-bold text-slate-700 dark:text-slate-200">
             <span class="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
@@ -3323,10 +3412,13 @@
             <span>Edit SQL</span>
             <span id="sqlStatusBadge" class="hidden text-[10px] font-bold px-2.5 py-0.5 rounded-full ml-2"></span>
           </div>
-          <button id="btnSubmitQuery" onclick="submitSQL()" class="m3-btn m3-btn-emerald text-xs font-bold px-4 py-1.5 gap-1.5 shadow-sm">
-            <i class="ph ph-check-bold text-xs"></i> Submit
+          <button id="btnSubmitQuery" onclick="submitSQL()" title="Submit SQL Answer (Ctrl+Shift+Enter)" class="m3-btn m3-btn-emerald text-xs font-bold px-4 py-1.5 gap-1.5 shadow-sm">
+            <i class="ph ph-check-bold text-xs"></i> Submit <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-black/15 text-[9.5px] font-mono opacity-85">Ctrl+⇧+↵</kbd>
           </button>
         </div>
+
+        <!-- Clickable Schema Chips Bar -->
+        <div class="sql-schema-slot" data-sql-lab="sql_world"></div>
 
         <div class="flex-1 flex overflow-hidden font-mono text-sm relative bg-white dark:bg-[#0c1017]">
           <!-- Dynamic Line Numbers -->
@@ -3341,8 +3433,8 @@
 
           <!-- Bottom-right floating action pill -->
           <div class="absolute bottom-3 right-4 flex items-center space-x-3 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-200/90 dark:border-slate-700/90 shadow-lg z-10">
-            <button id="btnRunCode" onclick="runSQL(false)" class="m3-btn m3-btn-filled text-xs font-bold px-4 py-1.5 gap-1.5 shadow-sm">
-              <i class="ph ph-play-fill text-[11px]"></i> Run Code
+            <button id="btnRunCode" onclick="runSQL(false)" title="Run SQL Query (Ctrl+Enter)" class="m3-btn m3-btn-filled text-xs font-bold px-4 py-1.5 gap-1.5 shadow-sm">
+              <i class="ph ph-play-fill text-[11px]"></i> Run Code <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-black/15 text-[9.5px] font-mono opacity-85">Ctrl+↵</kbd>
             </button>
             <label class="flex items-center space-x-2 text-xs text-slate-700 dark:text-slate-300 font-semibold cursor-pointer select-none">
               <input type="checkbox" id="autoRunToggle" onchange="toggleAutoRun()" class="sr-only peer">
@@ -3351,10 +3443,13 @@
             </label>
           </div>
         </div>
+
+        <!-- SQL Editor Status Bar (Ln/Col, Chars, Shortcuts) -->
+        <div class="sql-status-slot" data-sql-lab="sql_world"></div>
       </div>
 
       <!-- Bottom Half: Data Viewer -->
-      <div class="h-1/2 flex flex-col bg-[#f8fafc] dark:bg-[#0b0f19] border-t border-slate-200 dark:border-slate-800/80 overflow-hidden">
+      <div id="sqlWorldResultsHalf" class="h-1/2 flex flex-col bg-[#f8fafc] dark:bg-[#0b0f19] border-t border-slate-200 dark:border-slate-800/80 overflow-hidden">
         <!-- Tables Tab Navigation & Controls -->
         <div class="bg-[#eef2f7] dark:bg-[#111726] border-b border-slate-200 dark:border-slate-800/80 px-4 py-1.5 flex items-center justify-between select-none shrink-0">
           <div class="flex items-center space-x-1.5">
@@ -3460,10 +3555,10 @@
     </header>
 
     <!-- Main Content: Left Task Guide / Right Excel Spreadsheet -->
-    <div class="flex-1 flex overflow-hidden relative">
+    <div id="excelLabSplitContainer" class="flex-1 flex overflow-hidden relative">
 
       <!-- LEFT COLUMN: Task Guide & Certification Pane -->
-      <div class="w-[420px] 2xl:w-[480px] shrink-0 border-r border-slate-300 bg-[#f8fafc] flex flex-col h-full overflow-hidden text-slate-800 shadow-md">
+      <div id="excelLeftPaneColumn" class="w-[420px] 2xl:w-[480px] shrink-0 border-r border-slate-300 bg-[#f8fafc] flex flex-col h-full overflow-hidden text-slate-800 shadow-md">
         
         <!-- Tab Navigation Bar -->
         <div class="bg-slate-200/80 p-1.5 border-b border-slate-300 flex items-center gap-1 select-none">
@@ -3477,6 +3572,9 @@
             <i class="ph ph-trophy"></i> 100% Complete
           </button>
         </div>
+
+        <!-- Visual Exercise Progress Dot Strip -->
+        <div class="lab-dots-slot" data-dots-lab="excel"></div>
 
         <!-- 1. INTRO TAB VIEW -->
         <div id="excelIntroView" class="flex-1 overflow-y-auto p-5 space-y-5">
@@ -3766,7 +3864,7 @@
       </div>
 
       <!-- RIGHT COLUMN: Interactive Spreadsheet Grid -->
-      <div class="flex-1 flex flex-col h-full bg-white relative overflow-hidden">
+      <div id="excelRightPaneColumn" class="flex-1 flex flex-col h-full bg-white relative overflow-hidden">
         
         <!-- Start Lab Overlay (Cyan Backdrop like prompt reference) -->
         <div id="excelStartLabOverlay" class="absolute inset-0 z-40 bg-[#00bbf9] flex flex-col items-center justify-center p-6 text-slate-900 transition-opacity duration-300">
@@ -4071,7 +4169,7 @@
     </header>
 
     <!-- Main 2-Pane Split Area (40% Left / 60% Right) -->
-    <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
+    <div id="orderingSplitContainer" class="flex-1 flex flex-col md:flex-row overflow-hidden">
 
       <!-- Left Column: Instructions & Exercises List -->
       <div id="orderingLeftPaneContainer" class="w-full md:w-5/12 lg:w-4/12 bg-[#f8fafc] dark:bg-[#0f141f] border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 flex flex-col overflow-hidden shrink-0">
@@ -4087,6 +4185,9 @@
             <i class="ph ph-play-fill text-indigo-600 text-lg"></i> Start Lab
           </button>
         </div>
+
+        <!-- Visual Exercise Progress Dot Strip -->
+        <div class="lab-dots-slot" data-dots-lab="sql_ordering"></div>
         
         <!-- Top Half: SQL Editor -->
         <div id="orderingEditorHalf" class="h-1/2 flex flex-col border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f141d] relative">
@@ -4103,14 +4204,17 @@
               <button onclick="document.getElementById('orderingSqlInput').value=''; window.handleOrderingSQLInput();" class="m3-btn m3-btn-outlined px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700">
                 Clear
               </button>
-              <button onclick="window.runOrderingSQL()" class="m3-btn m3-btn-tonal px-3 py-1 text-xs font-bold gap-1.5 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800">
-                <i class="ph ph-play-fill text-xs"></i> Run Code
+              <button id="btnOrderingRunCode" onclick="window.runOrderingSQL()" title="Run SQL Query (Ctrl+Enter)" class="m3-btn m3-btn-tonal px-3 py-1 text-xs font-bold gap-1.5 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800">
+                <i class="ph ph-play-fill text-xs"></i> Run Code <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-indigo-500/15 text-[9.5px] font-mono opacity-85">Ctrl+↵</kbd>
               </button>
-              <button id="btnOrderingSubmitQuery" onclick="window.submitOrderingSQL()" class="m3-btn m3-btn-emerald px-4 py-1 text-xs font-bold gap-1.5 shadow-sm">
-                <i class="ph ph-check-bold text-xs"></i> Submit
+              <button id="btnOrderingSubmitQuery" onclick="window.submitOrderingSQL()" title="Submit SQL Answer (Ctrl+Shift+Enter)" class="m3-btn m3-btn-emerald px-4 py-1 text-xs font-bold gap-1.5 shadow-sm">
+                <i class="ph ph-check-bold text-xs"></i> Submit <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-black/15 text-[9.5px] font-mono opacity-85">Ctrl+⇧+↵</kbd>
               </button>
             </div>
           </div>
+
+          <!-- Clickable Schema Chips Bar -->
+          <div class="sql-schema-slot" data-sql-lab="sql_ordering"></div>
 
           <!-- Code Area with Line Numbers and Synced Syntax Highlight Layer -->
           <div class="flex-1 flex overflow-hidden font-mono text-sm relative bg-white dark:bg-[#0c1017]">
@@ -4122,10 +4226,13 @@
               <textarea id="orderingSqlInput" spellcheck="false" oninput="window.handleOrderingSQLInput(event)" onscroll="window.syncOrderingSqlScroll()" class="absolute inset-2 p-1 resize-none outline-none code-font text-base leading-6 bg-transparent whitespace-pre-wrap break-words text-slate-900 dark:text-white" placeholder="Type your SQL query here... e.g. SELECT * FROM moons ORDER BY radius"></textarea>
             </div>
           </div>
+
+          <!-- SQL Editor Status Bar -->
+          <div class="sql-status-slot" data-sql-lab="sql_ordering"></div>
         </div>
 
         <!-- Bottom Half: Results Table & Tables Explorer -->
-        <div class="h-1/2 flex flex-col bg-[#0b0f19] overflow-hidden">
+        <div id="orderingResultsHalf" class="h-1/2 flex flex-col bg-[#0b0f19] overflow-hidden">
           <!-- Tables Tab Navigation & Controls -->
           <div class="bg-[#111726] border-b border-slate-800/80 px-4 py-1.5 flex items-center justify-between select-none">
             <div class="flex items-center space-x-1">
@@ -4220,7 +4327,7 @@
     </header>
 
     <!-- Main 2-Pane Split Area (40% Left / 60% Right matching Seatwork 02 reference) -->
-    <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
+    <div id="moviesSplitContainer" class="flex-1 flex flex-col md:flex-row overflow-hidden">
 
       <!-- Left Column: Instructions & Exercises List -->
       <div id="moviesLeftPaneContainer" class="w-full md:w-5/12 lg:w-4/12 bg-[#f4f6fa] dark:bg-[#0f141f] border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 flex flex-col overflow-hidden shrink-0">
@@ -4237,6 +4344,9 @@
           </button>
         </div>
 
+        <!-- Visual Exercise Progress Dot Strip -->
+        <div class="lab-dots-slot" data-dots-lab="sql_movies"></div>
+
         <!-- Top Half: SQL Editor -->
         <div id="moviesEditorHalf" class="h-1/2 flex flex-col border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f141d] relative">
           <!-- Editor Header -->
@@ -4252,14 +4362,17 @@
               <button onclick="document.getElementById('moviesSqlInput').value=''; window.handleMoviesSQLInput();" class="m3-btn m3-btn-outlined px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700">
                 Clear
               </button>
-              <button onclick="window.runMoviesSQL()" class="m3-btn m3-btn-tonal px-3 py-1 text-xs font-bold gap-1.5 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800">
-                <i class="ph ph-play-fill text-xs"></i> Run Code
+              <button id="btnMoviesRunCode" onclick="window.runMoviesSQL()" title="Run SQL Query (Ctrl+Enter)" class="m3-btn m3-btn-tonal px-3 py-1 text-xs font-bold gap-1.5 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800">
+                <i class="ph ph-play-fill text-xs"></i> Run Code <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-blue-500/15 text-[9.5px] font-mono opacity-85">Ctrl+↵</kbd>
               </button>
-              <button id="btnMoviesSubmitQuery" onclick="window.submitMoviesSQL()" class="m3-btn m3-btn-emerald px-4 py-1 text-xs font-bold gap-1.5 shadow-sm">
-                <i class="ph ph-check-bold text-xs"></i> Submit
+              <button id="btnMoviesSubmitQuery" onclick="window.submitMoviesSQL()" title="Submit SQL Answer (Ctrl+Shift+Enter)" class="m3-btn m3-btn-emerald px-4 py-1 text-xs font-bold gap-1.5 shadow-sm">
+                <i class="ph ph-check-bold text-xs"></i> Submit <kbd class="hidden xl:inline-block ml-1 px-1 py-0.5 rounded bg-black/15 text-[9.5px] font-mono opacity-85">Ctrl+⇧+↵</kbd>
               </button>
             </div>
           </div>
+
+          <!-- Clickable Schema Chips Bar -->
+          <div class="sql-schema-slot" data-sql-lab="sql_movies"></div>
 
           <!-- Code Area with Line Numbers and Synced Syntax Highlight Layer -->
           <div class="flex-1 flex overflow-hidden font-mono text-sm relative bg-white dark:bg-[#0c1017]">
@@ -4273,7 +4386,7 @@
           </div>
 
           <!-- Floating bottom-right controls pill with Run Code + auto run toggle -->
-          <div class="absolute bottom-4 right-4 flex items-center space-x-3 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200/80 dark:border-slate-700/80 shadow-md select-none">
+          <div class="absolute bottom-9 right-4 flex items-center space-x-3 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200/80 dark:border-slate-700/80 shadow-md select-none">
             <button onclick="window.runMoviesSQL()" class="m3-btn m3-btn-tonal px-3 py-1 text-xs font-bold gap-1.5 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60">
               <i class="ph ph-play-fill text-xs"></i> Run Code
             </button>
@@ -4282,6 +4395,9 @@
               <span>auto run</span>
             </label>
           </div>
+
+          <!-- SQL Editor Status Bar -->
+          <div class="sql-status-slot" data-sql-lab="sql_movies"></div>
         </div>
 
         <!-- Bottom Half: Results Table & Tables Explorer -->
@@ -6091,6 +6207,7 @@
     });
 
     function toggleStepHint(stepId) {
+      if (window.__DA101_ACCESS__ && window.__DA101_ACCESS__.examMode === 'exam') return;
       const hintBox = document.getElementById(`step-hint-box-${stepId}`);
       if (hintBox) {
         hintBox.classList.toggle('hidden');
@@ -8241,7 +8358,10 @@
         <!-- Institutional Footer -->
         <div style="border-top: 2px solid #e2e8f0; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #64748b;">
           <div>Virtual Assistant Services Level III &bull; Module 2: SQL Around the World &bull; Exported on ${escapeHtml(date)} at ${escapeHtml(time)}</div>
-          <div style="color: #059669; font-weight: 800;">✓ Official Verified Result</div>
+          <div style="text-align: right;">
+            <span style="font-family: monospace; font-weight: 700; color: #0f172a; margin-right: 8px;">Verify: ${escapeHtml(typeof window.getModuleVerificationCode === 'function' ? window.getModuleVerificationCode('sql_world') : '')}</span>
+            <span style="color: #059669; font-weight: 800;">✓ Official Verified Result</span>
+          </div>
         </div>
       `;
 

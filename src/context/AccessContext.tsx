@@ -54,9 +54,13 @@ import {
   isGmailEmail,
 } from '../utils/identity';
 
+import { computeVerificationCode } from '../utils/verificationCode';
+
 export const ALL_MODULE_IDS: CurriculumModuleId[] = MODULE_DEFINITIONS.map(
   (m) => m.id,
 );
+
+export type ExamMode = 'practice' | 'exam';
 
 export interface ClassCodeRecord {
   code: string;
@@ -65,6 +69,8 @@ export interface ClassCodeRecord {
   startsAt: Timestamp;
   expiresAt: Timestamp;
   active: boolean;
+  examMode?: ExamMode;
+  archived?: boolean;
   createdBy?: string;
   createdAt?: Timestamp;
 }
@@ -77,6 +83,22 @@ export interface ModuleScoreSummary {
   percentage: number;
   status: 'Completed' | 'In Progress' | 'Not Started';
   completedAt?: number | null;
+  wrongStepIds?: number[];
+}
+
+export interface AuditMetrics {
+  tabSwitches: number;
+  largePastes: number;
+  moduleDurationsSec: Partial<Record<CurriculumModuleId, number>>;
+}
+
+export interface ClassAnnouncement {
+  id: string;
+  message: string;
+  targetBatch: string; // 'ALL' or specific batchNumber
+  active: boolean;
+  updatedBy?: string;
+  updatedAtMs?: number;
 }
 
 export interface EnrollmentRecord {
@@ -86,6 +108,7 @@ export interface EnrollmentRecord {
   code: string;
   batchNumber: string;
   allowedModules: CurriculumModuleId[];
+  examMode?: ExamMode;
   startsAt?: Timestamp;
   expiresAt: Timestamp;
   customExpiresAt?: Timestamp | null;
@@ -104,6 +127,7 @@ export interface EnrollmentRecord {
   duplicateOfUid?: string;
   flaggedAt?: Timestamp;
   moduleScores?: Partial<Record<CurriculumModuleId, ModuleScoreSummary>>;
+  auditMetrics?: AuditMetrics;
 }
 
 export interface GlobalAccessSnapshot {
@@ -114,6 +138,7 @@ export interface GlobalAccessSnapshot {
   isBlocked: boolean;
   isRevoked: boolean;
   profileLocked: boolean;
+  examMode: ExamMode;
   firstName: string | null;
   middleName: string | null;
   lastName: string | null;
@@ -207,6 +232,11 @@ function parseEnrollmentDoc(
     return null;
   }
 
+  const rawAudit =
+    raw.auditMetrics && typeof raw.auditMetrics === 'object'
+      ? (raw.auditMetrics as Partial<AuditMetrics>)
+      : undefined;
+
   return {
     uid,
     email: typeof raw.email === 'string' ? raw.email : fallbackEmail,
@@ -215,6 +245,7 @@ function parseEnrollmentDoc(
     code,
     batchNumber,
     allowedModules,
+    examMode: raw.examMode === 'exam' ? 'exam' : 'practice',
     startsAt: raw.startsAt instanceof Timestamp ? raw.startsAt : undefined,
     expiresAt,
     customExpiresAt:
@@ -242,6 +273,19 @@ function parseEnrollmentDoc(
       raw.moduleScores && typeof raw.moduleScores === 'object'
         ? (raw.moduleScores as Partial<Record<CurriculumModuleId, ModuleScoreSummary>>)
         : undefined,
+    auditMetrics: rawAudit
+      ? {
+          tabSwitches:
+            typeof rawAudit.tabSwitches === 'number' ? rawAudit.tabSwitches : 0,
+          largePastes:
+            typeof rawAudit.largePastes === 'number' ? rawAudit.largePastes : 0,
+          moduleDurationsSec:
+            rawAudit.moduleDurationsSec &&
+            typeof rawAudit.moduleDurationsSec === 'object'
+              ? rawAudit.moduleDurationsSec
+              : {},
+        }
+      : undefined,
   };
 }
 
@@ -256,6 +300,7 @@ interface AccessContextValue {
   isExpired: boolean;
   needsProfileRegistration: boolean;
   isExpiredExportOnly: boolean;
+  examMode: ExamMode;
   showCodeEntryFromExpired: boolean;
   setShowCodeEntryFromExpired: (open: boolean) => void;
   enrollment: EnrollmentRecord | null;
@@ -283,6 +328,15 @@ interface AccessContextValue {
   ) => Promise<{ ok: boolean; duplicate?: boolean }>;
   refreshEnrollment: () => Promise<void>;
   clearErrors: () => void;
+  // Resilience & Live Class Broadcast state
+  isOnline: boolean;
+  hasPendingSync: boolean;
+  justReconnected: boolean;
+  duplicateTabDetected: boolean;
+  dismissDuplicateTabWarning: () => void;
+  claimTabControl: () => void;
+  activeAnnouncement: ClassAnnouncement | null;
+  recordLargePaste: () => void;
 }
 
 const AccessContext = createContext<AccessContextValue | null>(null);
@@ -306,6 +360,30 @@ export function AccessProvider({ children }: { children: ReactNode }) {
   const [instructorPanelOpen, setInstructorPanelOpen] = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
   const [showCodeEntryFromExpired, setShowCodeEntryFromExpired] = useState(false);
+
+  // Resilience: Offline queue + Duplicate tab guard + Live Class Broadcast
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [hasPendingSync, setHasPendingSync] = useState(false);
+  const [justReconnected, setJustReconnected] = useState(false);
+  const [duplicateTabDetected, setDuplicateTabDetected] = useState(false);
+  const [activeAnnouncement, setActiveAnnouncement] =
+    useState<ClassAnnouncement | null>(null);
+
+  const tabInstanceIdRef = useRef<string>(
+    `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  );
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const auditRef = useRef<AuditMetrics>({
+    tabSwitches: 0,
+    largePastes: 0,
+    moduleDurationsSec: {},
+  });
+  const activeLabTickRef = useRef<{ moduleId: CurriculumModuleId | null; lastTickMs: number }>({
+    moduleId: null,
+    lastTickMs: Date.now(),
+  });
 
   const expiryVerifiedForRef = useRef<number | null>(null);
   const wasExpiredExportRef = useRef(false);
@@ -371,6 +449,8 @@ export function AccessProvider({ children }: { children: ReactNode }) {
         const liveBatch = String(
           codeData.batchNumber || record.batchNumber,
         ).trim();
+        const liveExamMode: ExamMode =
+          codeData.examMode === 'exam' ? 'exam' : 'practice';
 
         const hasCustomOverride = Boolean(record.customExpiresAt);
         const resolvedExpiresAt = hasCustomOverride
@@ -380,6 +460,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
           (!hasCustomOverride &&
             liveExpiresAt.toMillis() !== record.expiresAt.toMillis()) ||
           nextModules.join(',') !== record.allowedModules.join(',') ||
+          liveExamMode !== (record.examMode ?? 'practice') ||
           (!record.profileLocked && liveBatch !== record.batchNumber);
 
         if (
@@ -396,6 +477,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
                 code: record.code,
                 batchNumber: record.profileLocked ? record.batchNumber : liveBatch,
                 allowedModules: nextModules,
+                examMode: liveExamMode,
                 startsAt: liveStartsAt ?? record.startsAt ?? Timestamp.now(),
                 expiresAt: resolvedExpiresAt,
               },
@@ -631,6 +713,205 @@ export function AccessProvider({ children }: { children: ReactNode }) {
     return null;
   }, [enrollment?.batchNumber, isInstructor]);
 
+  const examMode = useMemo<ExamMode>(() => {
+    if (isInstructor) return 'practice';
+    return enrollment?.examMode === 'exam' ? 'exam' : 'practice';
+  }, [enrollment?.examMode, isInstructor]);
+
+  // Seed local auditMetrics ref whenever enrollment hydrates from Firestore
+  useEffect(() => {
+    if (enrollment?.auditMetrics) {
+      auditRef.current = {
+        tabSwitches: Math.max(
+          auditRef.current.tabSwitches,
+          enrollment.auditMetrics.tabSwitches || 0,
+        ),
+        largePastes: Math.max(
+          auditRef.current.largePastes,
+          enrollment.auditMetrics.largePastes || 0,
+        ),
+        moduleDurationsSec: {
+          ...(enrollment.auditMetrics.moduleDurationsSec || {}),
+          ...auditRef.current.moduleDurationsSec,
+        },
+      };
+    }
+  }, [enrollment?.auditMetrics]);
+
+  // Live Class Broadcast Announcement subscription (single lightweight doc)
+  useEffect(() => {
+    if (!user) {
+      setActiveAnnouncement(null);
+      return;
+    }
+
+    const annRef = doc(db, 'class_announcements', 'active');
+    const unsubscribe = onSnapshot(
+      annRef,
+      (snap) => {
+        if (!snap.exists()) {
+          setActiveAnnouncement(null);
+          return;
+        }
+        const d = snap.data() as Record<string, unknown>;
+        const active = Boolean(d.active);
+        const message = typeof d.message === 'string' ? d.message.trim() : '';
+        const targetBatch =
+          typeof d.targetBatch === 'string' && d.targetBatch.trim()
+            ? d.targetBatch.trim()
+            : 'ALL';
+        const updatedAtMs =
+          d.updatedAt instanceof Timestamp
+            ? d.updatedAt.toMillis()
+            : typeof d.updatedAtMs === 'number'
+              ? d.updatedAtMs
+              : Date.now();
+        const id =
+          typeof d.id === 'string' && d.id ? d.id : String(updatedAtMs);
+
+        if (!active || !message) {
+          setActiveAnnouncement(null);
+          return;
+        }
+
+        // Filter by target batch (instructors always see active broadcast for confirmation)
+        if (
+          !isInstructor &&
+          targetBatch !== 'ALL' &&
+          lockedBatchNumber &&
+          targetBatch !== lockedBatchNumber
+        ) {
+          setActiveAnnouncement(null);
+          return;
+        }
+
+        setActiveAnnouncement({
+          id,
+          message,
+          targetBatch,
+          active: true,
+          updatedBy: typeof d.updatedBy === 'string' ? d.updatedBy : undefined,
+          updatedAtMs,
+        });
+      },
+      () => {
+        // Non-fatal if class_announcements rule not published yet
+        setActiveAnnouncement(null);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [isInstructor, lockedBatchNumber, user]);
+
+  // Duplicate Tab / Session Conflict Guard via BroadcastChannel
+  useEffect(() => {
+    if (!user || isInstructor || typeof window === 'undefined') {
+      setDuplicateTabDetected(false);
+      return;
+    }
+
+    const tabId = tabInstanceIdRef.current;
+    const uid = user.uid;
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel('da101_session_guard');
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (ev: MessageEvent) => {
+        const msg = ev.data as { type?: string; uid?: string; tabId?: string };
+        if (!msg || msg.uid !== uid || msg.tabId === tabId) return;
+
+        if (msg.type === 'hello') {
+          setDuplicateTabDetected(true);
+          channel.postMessage({ type: 'ack', uid, tabId });
+        } else if (msg.type === 'ack' || msg.type === 'claim') {
+          setDuplicateTabDetected(true);
+        }
+      };
+
+      channel.postMessage({ type: 'hello', uid, tabId });
+
+      return () => {
+        broadcastChannelRef.current = null;
+        channel.close();
+      };
+    }
+
+    return undefined;
+  }, [isInstructor, user]);
+
+  const dismissDuplicateTabWarning = useCallback(() => {
+    setDuplicateTabDetected(false);
+  }, []);
+
+  const claimTabControl = useCallback(() => {
+    setDuplicateTabDetected(false);
+    if (broadcastChannelRef.current && user) {
+      broadcastChannelRef.current.postMessage({
+        type: 'claim',
+        uid: user.uid,
+        tabId: tabInstanceIdRef.current,
+      });
+    }
+  }, [user]);
+
+  // Passive Exam Integrity Audit Metrics: track tab leaves & active time inside labs
+  useEffect(() => {
+    if (!user || isInstructor || !hasAccess) return;
+
+    const getVisibleLabModule = (): CurriculumModuleId | null => {
+      if (typeof document === 'undefined') return null;
+      const excelEl = document.getElementById('excelLabAppView');
+      if (excelEl && !excelEl.classList.contains('hidden')) return 'excel';
+      const worldEl = document.getElementById('labAppView');
+      if (worldEl && !worldEl.classList.contains('hidden')) return 'sql_world';
+      const ordEl = document.getElementById('orderingLabAppView');
+      if (ordEl && !ordEl.classList.contains('hidden')) return 'sql_ordering';
+      const movEl = document.getElementById('moviesLabAppView');
+      if (movEl && !movEl.classList.contains('hidden')) return 'sql_movies';
+      return null;
+    };
+
+    const tickInterval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const activeMod = getVisibleLabModule();
+      const now = Date.now();
+      if (activeMod) {
+        const elapsedSec = Math.min(
+          15,
+          Math.max(1, Math.round((now - activeLabTickRef.current.lastTickMs) / 1000)),
+        );
+        const prev = auditRef.current.moduleDurationsSec[activeMod] || 0;
+        auditRef.current.moduleDurationsSec[activeMod] = prev + elapsedSec;
+      }
+      activeLabTickRef.current = { moduleId: activeMod, lastTickMs: now };
+    }, 10_000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        const activeMod = getVisibleLabModule();
+        if (activeMod) {
+          auditRef.current.tabSwitches += 1;
+          hasPendingProgressRef.current = true;
+        }
+      } else {
+        activeLabTickRef.current.lastTickMs = Date.now();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(tickInterval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [hasAccess, isInstructor, user]);
+
+  const recordLargePaste = useCallback(() => {
+    if (!user || isInstructor || !hasAccess) return;
+    auditRef.current.largePastes += 1;
+    hasPendingProgressRef.current = true;
+  }, [hasAccess, isInstructor, user]);
+
   // Graceful return to Home Practical Labs / Export view when time runs out inside an active lab
   useEffect(() => {
     if (isExpiredExportOnly && !wasExpiredExportRef.current) {
@@ -722,22 +1003,35 @@ export function AccessProvider({ children }: { children: ReactNode }) {
           percentage: mod.percentage,
           status: mod.status,
           completedAt: resolvedCompletedAt,
+          wrongStepIds: mod.wrongIds.slice(0, 20),
         };
         if (modulesPayload[mod.id] && resolvedCompletedAt) {
           modulesPayload[mod.id]!.completedAt = resolvedCompletedAt;
         }
       }
 
+      const auditSnapshot: AuditMetrics = {
+        tabSwitches: auditRef.current.tabSwitches,
+        largePastes: auditRef.current.largePastes,
+        moduleDurationsSec: { ...auditRef.current.moduleDurationsSec },
+      };
+
       const progressFingerprint = JSON.stringify(modulesPayload);
-      const scoresFingerprint = JSON.stringify(moduleScores);
+      const scoresFingerprint = JSON.stringify({ moduleScores, auditSnapshot });
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        hasPendingProgressRef.current = true;
+        setHasPendingSync(true);
+        return;
+      }
 
       const writes: Promise<unknown>[] = [];
+      let hadWriteFailure = false;
 
       if (
         (force || progressFingerprint !== lastProgressSyncJsonRef.current) &&
         Object.keys(modulesPayload).length > 0
       ) {
-        lastProgressSyncJsonRef.current = progressFingerprint;
         writes.push(
           setDoc(
             doc(db, 'student_progress', user.uid),
@@ -750,9 +1044,13 @@ export function AccessProvider({ children }: { children: ReactNode }) {
               modules: modulesPayload,
             },
             { merge: true },
-          ).catch(() => {
-            // Silent best-effort sync; keep local cache intact
-          }),
+          )
+            .then(() => {
+              lastProgressSyncJsonRef.current = progressFingerprint;
+            })
+            .catch(() => {
+              hadWriteFailure = true;
+            }),
         );
       }
 
@@ -760,29 +1058,78 @@ export function AccessProvider({ children }: { children: ReactNode }) {
         canWriteStudent &&
         (force || scoresFingerprint !== lastScoreSyncJsonRef.current)
       ) {
-        lastScoreSyncJsonRef.current = scoresFingerprint;
         writes.push(
           setDoc(
             doc(db, 'enrollments', user.uid),
             {
               uid: user.uid,
               moduleScores,
+              auditMetrics: auditSnapshot,
               lastActiveAt: serverTimestamp(),
             },
             { merge: true },
-          ).catch(() => {
-            // Silent best-effort sync
-          }),
+          )
+            .then(() => {
+              lastScoreSyncJsonRef.current = scoresFingerprint;
+            })
+            .catch(() => {
+              hadWriteFailure = true;
+            }),
         );
       }
 
-      hasPendingProgressRef.current = false;
       if (writes.length > 0) {
         await Promise.allSettled(writes);
+      }
+
+      if (hadWriteFailure) {
+        hasPendingProgressRef.current = true;
+        setHasPendingSync(true);
+      } else {
+        hasPendingProgressRef.current = false;
+        setHasPendingSync(false);
       }
     },
     [enrollment, hasAccess, isBlocked, isExpired, isInstructor, isRevoked, user],
   );
+
+  // Offline / Online Connectivity Listener + Automatic Reconnect Flush
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let reconnectBannerTimer: number | undefined;
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setJustReconnected(false);
+    };
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (hasPendingProgressRef.current) {
+        void flushProgressToCloud(true).then(() => {
+          setJustReconnected(true);
+          if (reconnectBannerTimer) window.clearTimeout(reconnectBannerTimer);
+          reconnectBannerTimer = window.setTimeout(() => {
+            setJustReconnected(false);
+          }, 4200);
+        });
+      } else {
+        setJustReconnected(true);
+        if (reconnectBannerTimer) window.clearTimeout(reconnectBannerTimer);
+        reconnectBannerTimer = window.setTimeout(() => {
+          setJustReconnected(false);
+        }, 3200);
+      }
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+      if (reconnectBannerTimer) window.clearTimeout(reconnectBannerTimer);
+    };
+  }, [flushProgressToCloud]);
 
   // Real-time cloud progress hydration ("cloud wins if newer") + live Instructor Retake/Reset listener
   useEffect(() => {
@@ -980,6 +1327,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
       isBlocked,
       isRevoked,
       profileLocked,
+      examMode,
       firstName: resolvedFirstName,
       middleName: resolvedMiddleName,
       lastName: resolvedLastName,
@@ -991,6 +1339,32 @@ export function AccessProvider({ children }: { children: ReactNode }) {
     };
 
     window.__DA101_ACCESS__ = snapshot;
+
+    // Toggle Exam Mode class on <html> so hint buttons hide cleanly in Graded Exam Mode
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle(
+        'da-exam-mode',
+        !isInstructor && examMode === 'exam',
+      );
+    }
+
+    // Expose tamper-evident verification code generator for all 4 PDF/PNG certificate exporters
+    window.getModuleVerificationCode = (moduleId: CurriculumModuleId) => {
+      const summary = readCurriculumProgress();
+      const mod = summary.modules.find((m) => m.id === moduleId);
+      const passed = mod?.passed ?? 0;
+      const total = mod?.total ?? 10;
+      const completedAt =
+        mod?.completedAt ?? enrollment?.moduleScores?.[moduleId]?.completedAt ?? null;
+      return computeVerificationCode({
+        uid: user?.uid || 'guest',
+        batchNumber: lockedBatchNumber || enrollment?.batchNumber || 'NA',
+        moduleId,
+        passed,
+        total,
+        completedAt,
+      });
+    };
 
     if (profileLocked && enrollment) {
       const f = enrollment.firstName || '';
@@ -1050,6 +1424,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
   }, [
     allowedModules,
     enrollment,
+    examMode,
     expiresAtMs,
     hasAccess,
     isBlocked,
@@ -1227,6 +1602,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
           code,
           batchNumber,
           allowedModules,
+          examMode: data.examMode === 'exam' ? 'exam' : 'practice',
           startsAt: startsAt ?? Timestamp.now(),
           expiresAt,
           activatedAt: enrollment?.activatedAt ?? serverTimestamp(),
@@ -1451,6 +1827,7 @@ export function AccessProvider({ children }: { children: ReactNode }) {
       isExpired,
       needsProfileRegistration,
       isExpiredExportOnly,
+      examMode,
       showCodeEntryFromExpired,
       setShowCodeEntryFromExpired,
       enrollment,
@@ -1476,29 +1853,46 @@ export function AccessProvider({ children }: { children: ReactNode }) {
       completeStudentProfile,
       refreshEnrollment,
       clearErrors,
+      isOnline,
+      hasPendingSync,
+      justReconnected,
+      duplicateTabDetected,
+      dismissDuplicateTabWarning,
+      claimTabControl,
+      activeAnnouncement,
+      recordLargePaste,
     }),
     [
+      activeAnnouncement,
       allowedModules,
       authError,
       authLoading,
       cancelSignOut,
+      claimTabControl,
       clearErrors,
       completeStudentProfile,
       confirmSignOut,
+      dismissDuplicateTabWarning,
+      duplicateTabDetected,
       enrollment,
       enrollmentLoading,
+      examMode,
       expiresAtMs,
       hasAccess,
+      hasPendingSync,
       instructorPanelOpen,
       isBlocked,
       isExpired,
       isExpiredExportOnly,
       isInstructor,
+      isOnline,
       isRevoked,
+      justReconnected,
       lockedBatchNumber,
       needsProfileRegistration,
       nowMs,
       profileError,
+      recordLargePaste,
       redeemClassCode,
       redeemError,
       redeeming,

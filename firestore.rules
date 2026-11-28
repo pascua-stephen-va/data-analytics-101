@@ -33,7 +33,9 @@ service cloud.firestore {
         && data.startsAt is timestamp
         && data.expiresAt is timestamp
         && data.expiresAt > data.startsAt
-        && data.active is bool;
+        && data.active is bool
+        && (!('examMode' in data) || data.examMode in ['practice', 'exam'])
+        && (!('archived' in data) || data.archived is bool);
     }
 
     function codeDoc(code) {
@@ -127,7 +129,8 @@ service cloud.firestore {
         && isActiveValidCode(request.resource.data.code)
         && request.resource.data.batchNumber == codeDoc(request.resource.data.code).data.batchNumber
         && request.resource.data.allowedModules == codeDoc(request.resource.data.code).data.allowedModules
-        && request.resource.data.expiresAt == codeDoc(request.resource.data.code).data.expiresAt;
+        && request.resource.data.expiresAt == codeDoc(request.resource.data.code).data.expiresAt
+        && request.resource.data.get('examMode', 'practice') == codeDoc(request.resource.data.code).data.get('examMode', 'practice');
 
       allow update: if isSignedIn()
         && request.auth.uid == uid
@@ -135,12 +138,13 @@ service cloud.firestore {
         && instructorFieldsProtected()
         && lockedProfileUnchanged()
         && (
-          // Path A: Initial profile registration / duplicate self-flagging, OR active non-expired score sync
+          // Path A: Initial profile registration / duplicate self-flagging, OR active non-expired score & audit sync
           (
             request.resource.data.code == resource.data.code
             && request.resource.data.batchNumber == resource.data.batchNumber
             && request.resource.data.allowedModules == resource.data.allowedModules
             && request.resource.data.expiresAt == resource.data.expiresAt
+            && request.resource.data.get('examMode', 'practice') == resource.data.get('examMode', 'practice')
             && (
               resource.data.get('profileLocked', false) != true
               || (
@@ -158,8 +162,15 @@ service cloud.firestore {
             && request.resource.data.batchNumber == codeDoc(request.resource.data.code).data.batchNumber
             && request.resource.data.allowedModules == codeDoc(request.resource.data.code).data.allowedModules
             && request.resource.data.expiresAt == codeDoc(request.resource.data.code).data.expiresAt
+            && request.resource.data.get('examMode', 'practice') == codeDoc(request.resource.data.code).data.get('examMode', 'practice')
           )
         );
+    }
+
+    // Live Class Broadcast Announcements (instructor writes, signed-in students read active doc)
+    match /class_announcements/{docId} {
+      allow get: if isSignedIn() && docId == 'active';
+      allow read, write: if isInstructor();
     }
 
     // Per-Account Cloud Progress Sync (students read anytime for Export-Only Mode; writes require active non-expired enrollment)

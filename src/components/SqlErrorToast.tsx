@@ -16,6 +16,7 @@ interface ActiveToast extends SqlErrorExplanation {
 
 export function SqlErrorToast() {
   const [toast, setToast] = useState<ActiveToast | null>(null);
+  const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export function SqlErrorToast() {
       const explained = explainSqlError(detail.error || '', detail.query || '');
       const id = Date.now();
 
+      setCopied(false);
       setToast({
         id,
         moduleLabel: detail.moduleLabel,
@@ -35,7 +37,7 @@ export function SqlErrorToast() {
       }
       timerRef.current = window.setTimeout(() => {
         setToast((prev) => (prev?.id === id ? null : prev));
-      }, 6000);
+      }, 6500);
     };
 
     window.addEventListener('da101sqlerror', handleSqlError);
@@ -52,6 +54,22 @@ export function SqlErrorToast() {
       window.clearTimeout(timerRef.current);
     }
     setToast(null);
+  };
+
+  const handleCopyError = async () => {
+    if (!toast) return;
+    const text = [
+      toast.moduleLabel ? `[${toast.moduleLabel}] ${toast.title}` : toast.title,
+      toast.detail,
+      `Tip: ${toast.tip}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Ignore clipboard failures
+    }
   };
 
   return (
@@ -86,14 +104,28 @@ export function SqlErrorToast() {
                       </span>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={dismiss}
-                    aria-label="Dismiss SQL error notification"
-                    className="no-ripple text-slate-400 hover:text-white transition-colors p-0.5 cursor-pointer shrink-0"
-                  >
-                    <i className="ph ph-x text-sm" aria-hidden="true" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyError()}
+                      title="Copy SQL error message"
+                      className="no-ripple inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <i
+                        className={`ph ${copied ? 'ph-check text-emerald-400' : 'ph-copy'} text-xs`}
+                        aria-hidden="true"
+                      />
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={dismiss}
+                      aria-label="Dismiss SQL error notification"
+                      className="no-ripple text-slate-400 hover:text-white transition-colors p-0.5 cursor-pointer shrink-0"
+                    >
+                      <i className="ph ph-x text-sm" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-xs text-rose-200/95 leading-snug break-words">

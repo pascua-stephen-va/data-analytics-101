@@ -10,6 +10,13 @@ import { InstructorPanel } from './components/InstructorPanel';
 import { SignOutConfirmModal } from './components/SignOutConfirmModal';
 import { SqlErrorToast } from './components/SqlErrorToast';
 import { ExpiryReminderToast } from './components/ExpiryReminderToast';
+import { ResilienceBanners } from './components/ResilienceBanners';
+import {
+  SqlEditorStatusBar,
+  SqlSchemaBar,
+  type SqlLabKey,
+} from './components/SqlEditorAssist';
+import { LabExerciseDots } from './components/LabExerciseDots';
 import { HeaderCountdownTimer } from './components/HeaderCountdownTimer';
 import {
   ExpiredExportBanner,
@@ -23,7 +30,11 @@ import {
   HeaderToolsMenu,
   type HeaderToolsLabId,
 } from './components/HeaderToolsMenu';
-import type { CurriculumModuleId } from './utils/curriculumProgress';
+import {
+  useCurriculumProgress,
+  type CurriculumModuleId,
+} from './utils/curriculumProgress';
+import { initAllLabSplitters } from './utils/labSplitters';
 
 interface ToolsSlot {
   element: HTMLElement;
@@ -43,6 +54,18 @@ interface ExportSlot {
   key: string;
 }
 
+interface SqlAssistSlot {
+  element: HTMLElement;
+  labId: SqlLabKey;
+  key: string;
+}
+
+interface DotsSlot {
+  element: HTMLElement;
+  moduleId: CurriculumModuleId;
+  key: string;
+}
+
 const VALID_MODULE_IDS = new Set<string>([
   'excel',
   'sql_world',
@@ -50,7 +73,56 @@ const VALID_MODULE_IDS = new Set<string>([
   'sql_movies',
 ]);
 
-function mapVariantSlots(selector: string, dataAttr: 'themeVariant' | 'timerVariant'): VariantSlot[] {
+const VALID_SQL_LAB_IDS = new Set<string>([
+  'sql_world',
+  'sql_ordering',
+  'sql_movies',
+]);
+
+const HOME_LAUNCH_BTN_TEXT_IDS: Record<CurriculumModuleId, string> = {
+  excel: 'homeLaunchBtnTextExcel',
+  sql_world: 'homeLaunchBtnText',
+  sql_ordering: 'homeLaunchBtnTextOrdering',
+  sql_movies: 'homeLaunchBtnTextMovies',
+};
+
+function HomeCardContinueSync() {
+  const summary = useCurriculumProgress();
+
+  useEffect(() => {
+    const applyLabels = () => {
+      for (const mod of summary.modules) {
+        const span = document.getElementById(HOME_LAUNCH_BTN_TEXT_IDS[mod.id]);
+        if (!span) continue;
+        if (mod.status === 'Completed') {
+          span.textContent = 'Review Completed Lab';
+        } else if (mod.status === 'In Progress' && mod.nextExerciseNumber) {
+          span.textContent = `Continue (Exercise #${mod.nextExerciseNumber})`;
+        } else if (mod.status === 'In Progress') {
+          span.textContent = 'Continue Lab';
+        } else {
+          span.textContent = 'Launch Lab';
+        }
+      }
+    };
+
+    applyLabels();
+    const onProgressChange = () => {
+      window.requestAnimationFrame(applyLabels);
+    };
+    window.addEventListener('curriculumprogresschange', onProgressChange);
+    return () => {
+      window.removeEventListener('curriculumprogresschange', onProgressChange);
+    };
+  }, [summary]);
+
+  return null;
+}
+
+function mapVariantSlots(
+  selector: string,
+  dataAttr: 'themeVariant' | 'timerVariant',
+): VariantSlot[] {
   const nodes = Array.from(document.querySelectorAll<HTMLElement>(selector));
   return nodes.map((element, index) => {
     const rawVariant = element.dataset[dataAttr];
@@ -71,6 +143,9 @@ function AppPortals() {
   const [timerSlots, setTimerSlots] = useState<VariantSlot[]>([]);
   const [toolsSlots, setToolsSlots] = useState<ToolsSlot[]>([]);
   const [exportSlots, setExportSlots] = useState<ExportSlot[]>([]);
+  const [sqlSchemaSlots, setSqlSchemaSlots] = useState<SqlAssistSlot[]>([]);
+  const [sqlStatusSlots, setSqlStatusSlots] = useState<SqlAssistSlot[]>([]);
+  const [dotsSlots, setDotsSlots] = useState<DotsSlot[]>([]);
   const [expiredBannerSlot, setExpiredBannerSlot] =
     useState<HTMLElement | null>(null);
   const [analyticsSlot, setAnalyticsSlot] = useState<HTMLElement | null>(null);
@@ -117,6 +192,54 @@ function AppPortals() {
     });
     setExportSlots(mappedExports);
 
+    const schemaNodes = Array.from(
+      document.querySelectorAll<HTMLElement>('.sql-schema-slot'),
+    );
+    const mappedSchemas: SqlAssistSlot[] = [];
+    schemaNodes.forEach((element, index) => {
+      const labId = element.dataset.sqlLab || '';
+      if (VALID_SQL_LAB_IDS.has(labId)) {
+        mappedSchemas.push({
+          element,
+          labId: labId as SqlLabKey,
+          key: element.id || `sql-schema-${labId}-${index}`,
+        });
+      }
+    });
+    setSqlSchemaSlots(mappedSchemas);
+
+    const statusNodes = Array.from(
+      document.querySelectorAll<HTMLElement>('.sql-status-slot'),
+    );
+    const mappedStatuses: SqlAssistSlot[] = [];
+    statusNodes.forEach((element, index) => {
+      const labId = element.dataset.sqlLab || '';
+      if (VALID_SQL_LAB_IDS.has(labId)) {
+        mappedStatuses.push({
+          element,
+          labId: labId as SqlLabKey,
+          key: element.id || `sql-status-${labId}-${index}`,
+        });
+      }
+    });
+    setSqlStatusSlots(mappedStatuses);
+
+    const dotsNodes = Array.from(
+      document.querySelectorAll<HTMLElement>('.lab-dots-slot'),
+    );
+    const mappedDots: DotsSlot[] = [];
+    dotsNodes.forEach((element, index) => {
+      const modId = element.dataset.dotsLab || '';
+      if (VALID_MODULE_IDS.has(modId)) {
+        mappedDots.push({
+          element,
+          moduleId: modId as CurriculumModuleId,
+          key: element.id || `lab-dots-${modId}-${index}`,
+        });
+      }
+    });
+    setDotsSlots(mappedDots);
+
     const bannerEl = document.getElementById('expiredExportBannerSlot');
     if (bannerEl) {
       setExpiredBannerSlot(bannerEl);
@@ -145,10 +268,16 @@ function AppPortals() {
     if (instructorFooterEl) {
       setFooterInstructorSlot(instructorFooterEl);
     }
+
+    const cleanupSplitters = initAllLabSplitters();
+    return () => {
+      cleanupSplitters();
+    };
   }, []);
 
   return (
     <>
+      <HomeCardContinueSync />
       {themeSlots.map(({ element, variant, key }) =>
         createPortal(<ThemeToggle variant={variant} />, element, key),
       )}
@@ -157,6 +286,15 @@ function AppPortals() {
       )}
       {toolsSlots.map(({ element, labId, key }) =>
         createPortal(<HeaderToolsMenu labId={labId} />, element, key),
+      )}
+      {sqlSchemaSlots.map(({ element, labId, key }) =>
+        createPortal(<SqlSchemaBar labId={labId} />, element, key),
+      )}
+      {sqlStatusSlots.map(({ element, labId, key }) =>
+        createPortal(<SqlEditorStatusBar labId={labId} />, element, key),
+      )}
+      {dotsSlots.map(({ element, moduleId, key }) =>
+        createPortal(<LabExerciseDots moduleId={moduleId} />, element, key),
       )}
       {expiredBannerSlot &&
         createPortal(
@@ -191,6 +329,8 @@ function AppPortals() {
           footerInstructorSlot,
           'footer-instructor-trigger',
         )}
+      {typeof document !== 'undefined' &&
+        createPortal(<ResilienceBanners />, document.body, 'resilience-banners')}
       {typeof document !== 'undefined' &&
         createPortal(<ClassAccessGate />, document.body, 'class-access-gate')}
       {typeof document !== 'undefined' &&

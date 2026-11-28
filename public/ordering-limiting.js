@@ -1607,7 +1607,10 @@
       <!-- Institutional Footer -->
       <div style="border-top: 2px solid #e2e8f0; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #64748b;">
         <div>Data Analytics 101 &bull; Module 3: Ordering and Limiting &bull; Completed on ${escapeHtml(date)} at ${escapeHtml(time)}</div>
-        <div style="color: #059669; font-weight: 800;">✓ Official Verified Result</div>
+        <div style="text-align: right;">
+          <span style="font-family: monospace; font-weight: 700; color: #0f172a; margin-right: 8px;">Verify: ${escapeHtml(typeof window.getModuleVerificationCode === 'function' ? window.getModuleVerificationCode('sql_ordering') : '')}</span>
+          <span style="color: #059669; font-weight: 800;">✓ Official Verified Result</span>
+        </div>
       </div>
     `;
 
@@ -1964,6 +1967,7 @@
   }
 
   function toggleOrderingHint(id) {
+    if (window.__DA101_ACCESS__ && window.__DA101_ACCESS__.examMode === 'exam') return;
     const box = document.getElementById(`ordering-hint-box-${id}`);
     if (box) {
       box.classList.toggle('hidden');

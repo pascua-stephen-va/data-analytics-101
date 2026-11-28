@@ -443,12 +443,30 @@
     lastQueriedTable: 'moons',
     activeDataTab: 'moons', // 'Results', 'countries', 'animals', 'moons'
     viewMode: 'table', // 'table' | 'picture'
-    isLabStarted: false
+    isLabStarted: false,
+    submittedQueries: {},
+    updatedAt: 0,
+    completedAt: null
   };
 
+  function resetOrderingStateInMemory() {
+    orderingState.completedSteps = new Set();
+    orderingState.wrongSteps = new Set();
+    orderingState.activeStep = 1;
+    orderingState.activeTab = 'intro';
+    orderingState.currentQuery = '';
+    orderingState.lastQueryResults = null;
+    orderingState.isLabStarted = false;
+    orderingState.submittedQueries = {};
+    orderingState.updatedAt = 0;
+    orderingState.completedAt = null;
+  }
+
   function loadSavedState() {
+    resetOrderingStateInMemory();
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const store = window.__DA101_STORAGE__;
+      const raw = store ? store.getItem(STORAGE_KEY) : null;
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed.completedSteps)) {
@@ -466,22 +484,48 @@
         if (typeof parsed.isLabStarted === 'boolean') {
           orderingState.isLabStarted = parsed.isLabStarted;
         }
+        if (parsed.submittedQueries && typeof parsed.submittedQueries === 'object') {
+          orderingState.submittedQueries = parsed.submittedQueries;
+        }
+        if (typeof parsed.updatedAt === 'number') {
+          orderingState.updatedAt = parsed.updatedAt;
+        }
+        if (typeof parsed.completedAt === 'number') {
+          orderingState.completedAt = parsed.completedAt;
+        }
       }
     } catch (e) {
       console.warn("Failed to load saved Seatwork 03 state:", e);
     }
   }
 
-  function persistState() {
+  function persistState(isSubmit = false) {
     try {
+      const store = window.__DA101_STORAGE__;
+      if (!store || !store.getUid()) return;
+      const now = Date.now();
+      const allDone = orderingState.completedSteps.size >= ORDERING_EXERCISES.length && ORDERING_EXERCISES.length > 0;
+      if (allDone) {
+        if (!orderingState.completedAt) orderingState.completedAt = now;
+      } else {
+        orderingState.completedAt = null;
+      }
+      orderingState.updatedAt = now;
+
       const payload = {
         activeStep: orderingState.activeStep,
         completedSteps: Array.from(orderingState.completedSteps),
         wrongSteps: Array.from(orderingState.wrongSteps),
         activeTab: orderingState.activeTab,
-        isLabStarted: orderingState.isLabStarted
+        isLabStarted: orderingState.isLabStarted,
+        submittedQueries: orderingState.submittedQueries || {},
+        updatedAt: now,
+        completedAt: orderingState.completedAt
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      store.setItem(STORAGE_KEY, JSON.stringify(payload));
+      if (isSubmit) {
+        store.notifySubmit('sql_ordering');
+      }
     } catch (e) {
       console.warn("Failed to persist Seatwork 03 state:", e);
     }
@@ -1498,15 +1542,19 @@
 
     const passedCount = orderingState.completedSteps.size;
     const wrongCount = orderingState.wrongSteps.size;
+    const isComplete = (passedCount + wrongCount) >= ORDERING_EXERCISES.length;
 
     const exerciseCardsHtml = ORDERING_EXERCISES.map((ex, idx) => {
       const isPassed = orderingState.completedSteps.has(ex.id);
+      const isWrong = orderingState.wrongSteps.has(ex.id);
       const statusBadge = isPassed
         ? `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✓ PASSED</div>`
-        : `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✕ INCORRECT</div>`;
+        : (isWrong
+          ? `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✕ INCORRECT</div>`
+          : `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">— UNANSWERED</div>`);
 
       return `
-      <div style="background: #ffffff; border: 1px solid ${isPassed ? '#e2e8f0' : '#fecdd3'}; border-radius: 6px; padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; min-height: 34px; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+      <div style="background: #ffffff; border: 1px solid ${isPassed ? '#e2e8f0' : (isWrong ? '#fecdd3' : '#e2e8f0')}; border-radius: 6px; padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; min-height: 34px; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: -0.02em; color: #0f172a; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; flex: 1; min-width: 0;">
           <span style="color: #4f46e5; font-weight: 800; flex-shrink: 0;">#${String(idx + 1).padStart(2, '0')}</span>
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(ex.title)}</span>
@@ -1526,9 +1574,9 @@
             <h1 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.03em; margin: 0; line-height: 1.2;">Module 3: Ordering and Limiting</h1>
             <div style="font-size: 11px; font-weight: 500; color: #64748b; margin-top: 1px; line-height: 1.6;">Official Laboratory Verification &amp; Competency Assessment Report</div>
           </div>
-          <div style="background: ${passedCount === ORDERING_EXERCISES.length ? '#f0fdf4' : '#fefce8'}; border: 1.5px solid ${passedCount === ORDERING_EXERCISES.length ? '#86efac' : '#fde047'}; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
-            <div style="font-size: 9.5px; font-weight: 800; color: ${passedCount === ORDERING_EXERCISES.length ? '#166534' : '#854d0e'}; text-transform: uppercase;">Module 3 Report</div>
-            <div style="font-size: 11px; font-weight: 900; color: ${passedCount === ORDERING_EXERCISES.length ? '#15803d' : '#a16207'};">${passedCount} / 10 Passed (${wrongCount} Incorrect)</div>
+          <div style="background: ${isComplete ? '#f0fdf4' : '#fefce8'}; border: 1.5px solid ${isComplete ? '#86efac' : '#fde047'}; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
+            <div style="font-size: 9.5px; font-weight: 800; color: ${isComplete ? '#166534' : '#854d0e'}; text-transform: uppercase;">STATUS: ${isComplete ? 'COMPLETED' : 'INCOMPLETE'}</div>
+            <div style="font-size: 11px; font-weight: 900; color: ${isComplete ? '#15803d' : '#a16207'};">${passedCount} / 10 Passed (${wrongCount} Incorrect)</div>
           </div>
         </div>
 
@@ -1729,6 +1777,12 @@
       updateDataTabButtons();
     }
 
+    const savedQuery = orderingState.submittedQueries && orderingState.submittedQueries[String(id)];
+    const input = document.getElementById('orderingSqlInput');
+    if (input && typeof savedQuery === 'string' && savedQuery.trim()) {
+      input.value = savedQuery;
+    }
+
     renderOrderingLeftPane();
     renderOrderingResultsPane();
     updateOrderingSubmitButtonState();
@@ -1804,7 +1858,9 @@
         badge.textContent = 'Syntax Error';
       }
       if (!silent) {
-        showOrderingNotification(res.error || "Query is invalid.");
+        window.dispatchEvent(new CustomEvent('da101sqlerror', {
+          detail: { error: res.error || 'Query is invalid.', query, moduleLabel: 'Module 3 · Ordering & Limiting' }
+        }));
       }
       return null;
     }
@@ -1814,20 +1870,27 @@
     const currentEx = getActiveExercise();
     if (!currentEx) return;
 
-    const res = runOrderingSQL(true);
     const input = document.getElementById('orderingSqlInput');
     const queryStr = input ? input.value.trim() : '';
+    if (queryStr) {
+      orderingState.submittedQueries = orderingState.submittedQueries || {};
+      orderingState.submittedQueries[String(currentEx.id)] = queryStr;
+    }
+    const checkSyntax = queryStr ? executeOrderingSQL(queryStr) : { success: false, error: 'Please type a SQL query before submitting.' };
+    const res = runOrderingSQL(true);
 
     if (!res) {
       // Syntax error or empty query - mark as wrong, allow retry
       orderingState.wrongSteps.add(currentEx.id);
       orderingState.completedSteps.delete(currentEx.id);
-      persistState();
+      persistState(true);
       renderOrderingHeader();
       renderOrderingLeftPane();
       updateOrderingSubmitButtonState();
       updateOrderingHomeScreenCardProgress();
-      showOrderingNotification(`Exercise ${currentEx.id} query has an error. Check hint and retry anytime!`);
+      window.dispatchEvent(new CustomEvent('da101sqlerror', {
+        detail: { error: checkSyntax.error || `Exercise ${currentEx.id} query has a syntax error.`, query: queryStr, moduleLabel: 'Module 3 · Ordering & Limiting' }
+      }));
       return;
     }
 
@@ -1835,7 +1898,7 @@
     if (isValid) {
       orderingState.completedSteps.add(currentEx.id);
       orderingState.wrongSteps.delete(currentEx.id);
-      persistState();
+      persistState(true);
       renderOrderingHeader();
       renderOrderingLeftPane();
       updateOrderingSubmitButtonState();
@@ -1855,7 +1918,7 @@
     } else {
       orderingState.wrongSteps.add(currentEx.id);
       orderingState.completedSteps.delete(currentEx.id);
-      persistState();
+      persistState(true);
       renderOrderingHeader();
       renderOrderingLeftPane();
       updateOrderingSubmitButtonState();
@@ -1908,14 +1971,34 @@
   }
   window.toggleOrderingHint = toggleOrderingHint;
 
+  window.reloadOrderingStateFromStorage = function () {
+    loadSavedState();
+    const input = document.getElementById('orderingSqlInput');
+    const savedQuery = orderingState.submittedQueries && orderingState.submittedQueries[String(orderingState.activeStep)];
+    if (input) input.value = typeof savedQuery === 'string' ? savedQuery : '';
+    try {
+      renderOrderingHeader();
+      renderOrderingLeftPane();
+      renderOrderingRightPane();
+      renderOrderingResultsPane();
+      updateOrderingSubmitButtonState();
+      updateOrderingHomeScreenCardProgress();
+      if (typeof window.handleOrderingSQLInput === 'function') {
+        window.handleOrderingSQLInput();
+      }
+    } catch (e) {}
+  };
+
   function retryOrderingLab() {
     orderingState.completedSteps.clear();
     orderingState.wrongSteps.clear();
+    orderingState.submittedQueries = {};
+    orderingState.completedAt = null;
     orderingState.activeStep = 1;
     orderingState.activeTab = 'exercises';
     orderingState.currentQuery = '';
     orderingState.lastQueryResults = null;
-    persistState();
+    persistState(true);
     renderOrderingHeader();
     renderOrderingLeftPane();
     renderOrderingResultsPane();

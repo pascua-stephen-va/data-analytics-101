@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
+import {
+  ACCOUNT_PROGRESS_KEYS,
+  getAccountScopedItem,
+} from './accountProgress';
 
 export type CurriculumModuleId = 'excel' | 'sql_world' | 'sql_ordering' | 'sql_movies';
-export type ActivityKey = 'excel_module_1' | 'sql_world' | 'ordering_limiting' | 'movies_activity';
+export type ActivityKey =
+  | 'transforming_data_with_excel'
+  | 'sql_around_the_world'
+  | 'ordering_and_limiting'
+  | 'successful_movies';
 
 export interface ModuleDefinition {
   id: CurriculumModuleId;
@@ -24,6 +32,7 @@ export interface ModuleProgressItem extends ModuleDefinition {
   total: number;
   percentage: number;
   status: 'Completed' | 'In Progress' | 'Not Started';
+  completedAt: number | null;
 }
 
 export interface CurriculumSummary {
@@ -47,7 +56,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
     accentColor: '#10b981',
     accentSoftDark: 'rgba(16, 185, 129, 0.16)',
     accentSoftLight: 'rgba(16, 185, 129, 0.12)',
-    activityKey: 'excel_module_1',
+    activityKey: 'transforming_data_with_excel',
     defaultTotal: 20,
   },
   {
@@ -60,7 +69,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
     accentColor: '#3b82f6',
     accentSoftDark: 'rgba(59, 130, 246, 0.18)',
     accentSoftLight: 'rgba(59, 130, 246, 0.12)',
-    activityKey: 'sql_world',
+    activityKey: 'sql_around_the_world',
     defaultTotal: 12,
   },
   {
@@ -73,7 +82,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
     accentColor: '#6366f1',
     accentSoftDark: 'rgba(99, 102, 241, 0.18)',
     accentSoftLight: 'rgba(99, 102, 241, 0.12)',
-    activityKey: 'ordering_limiting',
+    activityKey: 'ordering_and_limiting',
     defaultTotal: 10,
   },
   {
@@ -86,22 +95,29 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
     accentColor: '#f59e0b',
     accentSoftDark: 'rgba(245, 158, 11, 0.18)',
     accentSoftLight: 'rgba(245, 158, 11, 0.14)',
-    activityKey: 'movies_activity',
+    activityKey: 'successful_movies',
     defaultTotal: 10,
   },
 ];
 
 declare global {
   interface Window {
+    __DA101_ACTIVE_UID__?: string | null;
     excelState?: {
       completedTasks?: Set<number>;
       wrongTasks?: Set<number>;
+      completedAt?: number | null;
     };
     EXERCISES_20?: Array<unknown>;
     selectCurriculumModule?: (moduleId: CurriculumModuleId) => void;
     getCurrentCurriculumModule?: () => CurriculumModuleId;
     openActivity?: (activityId: string) => void;
     switchPortalTab?: (tabName: 'lessons' | 'activities') => void;
+    updateHomeScreenProgress?: () => void;
+    reloadExcelStateFromStorage?: () => void;
+    reloadSqlWorldStateFromStorage?: () => void;
+    reloadOrderingStateFromStorage?: () => void;
+    reloadMoviesStateFromStorage?: () => void;
   }
 }
 
@@ -120,9 +136,11 @@ function uniqueArrayLength(val: unknown): number {
   return 0;
 }
 
-function readModuleCounts(def: ModuleDefinition): { passed: number; wrong: number; total: number } {
+function readModuleCounts(
+  def: ModuleDefinition,
+): { passed: number; wrong: number; total: number; completedAt: number | null } {
   if (typeof window === 'undefined') {
-    return { passed: 0, wrong: 0, total: def.defaultTotal };
+    return { passed: 0, wrong: 0, total: def.defaultTotal, completedAt: null };
   }
 
   try {
@@ -132,62 +150,100 @@ function readModuleCounts(def: ModuleDefinition): { passed: number; wrong: numbe
           ? window.EXERCISES_20.length
           : def.defaultTotal;
 
-      if (window.excelState?.completedTasks instanceof Set) {
+      const saved = safeParseJson<{
+        completedTasks?: unknown[];
+        wrongTasks?: unknown[];
+        completedAt?: number | null;
+      }>(getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.excel));
+
+      if (window.excelState?.completedTasks instanceof Set && window.__DA101_ACTIVE_UID__) {
         const passed = Math.min(total, window.excelState.completedTasks.size);
         const wrong =
           window.excelState.wrongTasks instanceof Set
             ? Math.min(total - passed, window.excelState.wrongTasks.size)
             : 0;
-        return { passed, wrong, total };
+        const completedAt =
+          passed >= total
+            ? (typeof window.excelState.completedAt === 'number'
+                ? window.excelState.completedAt
+                : typeof saved?.completedAt === 'number'
+                  ? saved.completedAt
+                  : null)
+            : null;
+        return { passed, wrong, total, completedAt };
       }
 
-      const saved = safeParseJson<{ completedTasks?: unknown[]; wrongTasks?: unknown[] }>(
-        localStorage.getItem('excel_module_1_state_v2'),
-      );
       const passed = Math.min(total, uniqueArrayLength(saved?.completedTasks));
       const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongTasks));
-      return { passed, wrong, total };
+      const completedAt =
+        passed >= total && typeof saved?.completedAt === 'number'
+          ? saved.completedAt
+          : null;
+      return { passed, wrong, total, completedAt };
     }
 
     if (def.id === 'sql_world') {
       const total = def.defaultTotal;
-      const completed = safeParseJson<unknown[]>(localStorage.getItem('sqlLab_completedSteps'));
-      const wrongArr = safeParseJson<unknown[]>(localStorage.getItem('sqlLab_wrongSteps'));
+      const completed = safeParseJson<unknown[]>(
+        getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldCompleted),
+      );
+      const wrongArr = safeParseJson<unknown[]>(
+        getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldWrong),
+      );
+      const meta = safeParseJson<{ completedAt?: number | null }>(
+        getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlWorldMeta),
+      );
       const passed = Math.min(total, uniqueArrayLength(completed));
       const wrong = Math.min(total - passed, uniqueArrayLength(wrongArr));
-      return { passed, wrong, total };
+      const completedAt =
+        passed >= total && typeof meta?.completedAt === 'number'
+          ? meta.completedAt
+          : null;
+      return { passed, wrong, total, completedAt };
     }
 
     if (def.id === 'sql_ordering') {
       const total = def.defaultTotal;
-      const saved = safeParseJson<{ completedSteps?: unknown[]; wrongSteps?: unknown[] }>(
-        localStorage.getItem('seatwork03_ordering_limiting_state'),
-      );
+      const saved = safeParseJson<{
+        completedSteps?: unknown[];
+        wrongSteps?: unknown[];
+        completedAt?: number | null;
+      }>(getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlOrdering));
       const passed = Math.min(total, uniqueArrayLength(saved?.completedSteps));
       const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongSteps));
-      return { passed, wrong, total };
+      const completedAt =
+        passed >= total && typeof saved?.completedAt === 'number'
+          ? saved.completedAt
+          : null;
+      return { passed, wrong, total, completedAt };
     }
 
     if (def.id === 'sql_movies') {
       const total = def.defaultTotal;
-      const raw =
-        localStorage.getItem('asynchronous_01_movies_state_v1') ||
-        localStorage.getItem('seatwork_04_movies_state_v1');
-      const saved = safeParseJson<{ completedSteps?: unknown[]; wrongSteps?: unknown[] }>(raw);
+      const raw = getAccountScopedItem(ACCOUNT_PROGRESS_KEYS.sqlMovies);
+      const saved = safeParseJson<{
+        completedSteps?: unknown[];
+        wrongSteps?: unknown[];
+        completedAt?: number | null;
+      }>(raw);
       const passed = Math.min(total, uniqueArrayLength(saved?.completedSteps));
       const wrong = Math.min(total - passed, uniqueArrayLength(saved?.wrongSteps));
-      return { passed, wrong, total };
+      const completedAt =
+        passed >= total && typeof saved?.completedAt === 'number'
+          ? saved.completedAt
+          : null;
+      return { passed, wrong, total, completedAt };
     }
   } catch {
     // Fallback to zeroed progress if storage is restricted
   }
 
-  return { passed: 0, wrong: 0, total: def.defaultTotal };
+  return { passed: 0, wrong: 0, total: def.defaultTotal, completedAt: null };
 }
 
 export function readCurriculumProgress(): CurriculumSummary {
   const modules: ModuleProgressItem[] = MODULE_DEFINITIONS.map((def) => {
-    const { passed, wrong, total } = readModuleCounts(def);
+    const { passed, wrong, total, completedAt } = readModuleCounts(def);
     const attempted = Math.min(total, passed + wrong);
     const percentage = total > 0 ? Math.round((passed / total) * 100) : 0;
     const status: ModuleProgressItem['status'] =
@@ -201,6 +257,7 @@ export function readCurriculumProgress(): CurriculumSummary {
       total,
       percentage,
       status,
+      completedAt,
     };
   });
 

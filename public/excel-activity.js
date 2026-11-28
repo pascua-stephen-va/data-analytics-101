@@ -736,14 +736,56 @@
 
   const EXCEL_STORAGE_KEY = 'excel_module_1_state_v2';
 
-  window.persistExcelState = function() {
+  function resetExcelStateInMemoryToDefaults() {
+    window.excelState.completedTasks = new Set();
+    window.excelState.wrongTasks = new Set();
+    window.excelState.currentTaskIdx = 0;
+    window.excelState.hasStartedLab = false;
+    window.excelState.isCompleted = false;
+    window.excelState.completedAt = null;
+    window.excelState.updatedAt = 0;
+    window.excelState.cellFormulas = {};
+    window.excelState.cellHyperlinks = {};
+    window.excelState.cellStyles = {};
+    window.excelState.filters = {};
+    window.excelState.conditionalFormatting = [];
+    window.excelState.tableFormatted = false;
+    window.excelState.dataValidationActive = false;
+    window.excelState.chartInserted = false;
+    window.excelState.slicerActive = false;
+    window.excelState.sortCol = null;
+    window.excelState.sortDir = null;
+    window.excelState.flashFillSplitDone = false;
+    window.excelState.flashFillCombineDone = false;
+    window.excelState.sheets = {
+      BIKE_SALES: JSON.parse(JSON.stringify(window.BIKE_SALES_MASTER)),
+      EMPLOYEE_MASTER: JSON.parse(JSON.stringify(window.EMPLOYEE_MASTER)),
+      FLASH_FILL_DATA: JSON.parse(JSON.stringify(window.FLASH_FILL_MASTER))
+    };
+    window.excelState.currentData = window.excelState.sheets[window.excelState.activeSheet] || window.excelState.sheets.BIKE_SALES;
+  }
+
+  window.persistExcelState = function(isSubmit = false) {
     try {
+      const store = window.__DA101_STORAGE__;
+      if (!store || !store.getUid()) return;
+      const now = Date.now();
+      const allDone = window.excelState.completedTasks.size >= window.EXERCISES_20.length && window.EXERCISES_20.length > 0;
+      if (allDone) {
+        if (!window.excelState.completedAt) window.excelState.completedAt = now;
+      } else {
+        window.excelState.completedAt = null;
+      }
+      window.excelState.updatedAt = now;
+
       const dataToSave = {
         completedTasks: Array.from(window.excelState.completedTasks),
         wrongTasks: Array.from(window.excelState.wrongTasks),
         currentTaskIdx: window.excelState.currentTaskIdx,
         hasStartedLab: window.excelState.hasStartedLab,
-        isCompleted: window.excelState.isCompleted || (window.excelState.completedTasks.size === window.EXERCISES_20.length),
+        isCompleted: window.excelState.isCompleted || allDone,
+        completedAt: window.excelState.completedAt,
+        updatedAt: now,
         cellFormulas: window.excelState.cellFormulas,
         cellHyperlinks: window.excelState.cellHyperlinks || {},
         tableFormatted: Boolean(window.excelState.tableFormatted),
@@ -752,15 +794,20 @@
         slicerActive: Boolean(window.excelState.slicerActive),
         sheets: window.excelState.sheets
       };
-      localStorage.setItem(EXCEL_STORAGE_KEY, JSON.stringify(dataToSave));
+      store.setItem(EXCEL_STORAGE_KEY, JSON.stringify(dataToSave));
+      if (isSubmit) {
+        store.notifySubmit('excel');
+      }
     } catch (e) {
       console.warn("Failed to persist Excel state:", e);
     }
   };
 
   window.loadExcelState = function() {
+    resetExcelStateInMemoryToDefaults();
     try {
-      const saved = localStorage.getItem(EXCEL_STORAGE_KEY);
+      const store = window.__DA101_STORAGE__;
+      const saved = store ? store.getItem(EXCEL_STORAGE_KEY) : null;
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.completedTasks)) {
@@ -774,6 +821,12 @@
         }
         if (typeof parsed.hasStartedLab === 'boolean') {
           window.excelState.hasStartedLab = parsed.hasStartedLab;
+        }
+        if (typeof parsed.completedAt === 'number') {
+          window.excelState.completedAt = parsed.completedAt;
+        }
+        if (typeof parsed.updatedAt === 'number') {
+          window.excelState.updatedAt = parsed.updatedAt;
         }
         if (parsed.isCompleted || (window.excelState.completedTasks && window.excelState.completedTasks.size === 20)) {
           window.excelState.isCompleted = true;
@@ -2810,7 +2863,7 @@
     if (passed) {
       window.excelState.completedTasks.add(taskIdx);
       window.excelState.wrongTasks.delete(taskIdx);
-      window.persistExcelState();
+      window.persistExcelState(true);
       updateExcelTopProgress();
 
       if (taskStatusBanner) {
@@ -2833,7 +2886,7 @@
       // If all 20 completed, trigger full celebration
       if (window.excelState.completedTasks.size === window.EXERCISES_20.length) {
         window.excelState.isCompleted = true;
-        window.persistExcelState();
+        window.persistExcelState(true);
         if (typeof confetti === 'function') {
           confetti({
             particleCount: 120,
@@ -2870,7 +2923,7 @@
       if (!isAuto) {
         window.excelState.wrongTasks.add(taskIdx);
         window.excelState.completedTasks.delete(taskIdx);
-        window.persistExcelState();
+        window.persistExcelState(true);
         updateExcelTopProgress();
         if (taskStatusBanner) {
           taskStatusBanner.classList.remove('hidden', 'bg-emerald-50', 'text-emerald-800', 'border-emerald-200');
@@ -3524,25 +3577,26 @@
     showExcelToast(`AutoSum applied to ${targetRef}: ${formula}`, "success");
   };
 
+  window.reloadExcelStateFromStorage = function() {
+    window.loadExcelState();
+    try {
+      renderExcelGrid();
+      renderExcelTask();
+      updateExcelTopProgress();
+      if (typeof window.updateExcelHomeScreenCardProgress === 'function') {
+        window.updateExcelHomeScreenCardProgress();
+      }
+      if (typeof window.updateExcelCompletionCard === 'function') {
+        window.updateExcelCompletionCard();
+      }
+    } catch (e) {}
+  };
+
   // Reset Lab / Question
   window.resetExcelLab = function(fullReset = false) {
     if (fullReset) {
-      window.excelState.sheets.BIKE_SALES = JSON.parse(JSON.stringify(window.BIKE_SALES_MASTER));
-      window.excelState.sheets.EMPLOYEE_MASTER = JSON.parse(JSON.stringify(window.EMPLOYEE_MASTER));
-      window.excelState.sheets.FLASH_FILL_DATA = JSON.parse(JSON.stringify(window.FLASH_FILL_MASTER));
-      window.excelState.currentData = window.excelState.sheets[window.excelState.activeSheet] || window.excelState.sheets.BIKE_SALES;
-      window.excelState.cellFormulas = {};
-      window.excelState.cellStyles = {};
-      window.excelState.filters = {};
-      window.excelState.conditionalFormatting = [];
-      window.excelState.completedTasks.clear();
-      window.excelState.wrongTasks.clear();
-      window.excelState.currentTaskIdx = 0;
-      window.excelState.sortCol = null;
-      window.excelState.sortDir = null;
-      window.excelState.flashFillSplitDone = false;
-      window.excelState.flashFillCombineDone = false;
-      window.persistExcelState();
+      resetExcelStateInMemoryToDefaults();
+      window.persistExcelState(true);
 
       renderExcelGrid();
       renderExcelTask();
@@ -3902,7 +3956,7 @@
 
   // BUILD OFFICIAL A4 ASSESSMENT REPORT DOM ELEMENT (Matches exact A4 dimensions 794x1123)
   window.buildExcelA4ReportElement = function(firstName, lastName, batchNumber, dateStr, timeStr) {
-    const studentFullName = `${firstName} ${lastName}`.trim() || "Candidate Student";
+    const studentFullName = (firstName && !lastName) ? firstName.trim() : `${firstName} ${lastName}`.trim() || "Candidate Student";
     const report = document.createElement("div");
     report.className = "excel-a4-pdf-canvas bg-white text-slate-900 mx-auto overflow-hidden relative";
     report.style.width = "794px";
@@ -3986,9 +4040,9 @@
           </div>
           <div style="text-align: right; flex-shrink: 0;">
             <div style="display: inline-block; background: ${isAllComplete ? '#dcfce7' : '#fef9c3'}; border: 1.5px solid ${isAllComplete ? '#22c55e' : '#facc15'}; color: ${isAllComplete ? '#15803d' : '#854d0e'}; font-weight: 900; font-size: 11px; padding: 4px 10px; border-radius: 9999px;">
-              STATUS: ${isAllComplete ? '100% COMPLETED' : `${Math.round((completedCount / window.EXERCISES_20.length) * 100)}% COMPLETED`}
+              STATUS: ${isAllComplete ? '100% COMPLETED' : `INCOMPLETE (${Math.round((completedCount / window.EXERCISES_20.length) * 100)}%)`}
             </div>
-            <div style="font-size: 10px; font-weight: 700; color: #166534; margin-top: 4px;">${completedCount} / ${window.EXERCISES_20.length} Exercises Passed &amp; Verified</div>
+            <div style="font-size: 10px; font-weight: 700; color: ${isAllComplete ? '#166534' : '#854d0e'}; margin-top: 4px;">${completedCount} / ${window.EXERCISES_20.length} Exercises Passed &amp; Verified</div>
           </div>
         </div>
 
@@ -4018,7 +4072,7 @@
         <div style="margin-bottom: 12px;">
           <div style="font-size: 10px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
             <span>Module 1: Verified Exercise Assessment Results (${window.EXERCISES_20.length} Practical Exercises)</span>
-            <span style="color: #15803d; font-weight: 700;">Grade: Pass with Distinction (${Math.round((completedCount / window.EXERCISES_20.length) * 100)}%)</span>
+            <span style="color: ${isAllComplete ? '#15803d' : '#a16207'}; font-weight: 700;">${isAllComplete ? 'Grade: Pass with Distinction (100%)' : `Partial Score: ${Math.round((completedCount / window.EXERCISES_20.length) * 100)}% (Incomplete)`}</span>
           </div>
           <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
             ${tableRowsHtml}
@@ -4059,14 +4113,16 @@
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     const first = student.firstName || 'Alex';
+    const middle = student.middleName || '';
     const last = student.lastName || 'Morgan';
+    const fullName = student.name || [first, middle, last].filter(Boolean).join(' ');
     const batch = student.batchInput || '101';
     const dateStr = student.date || new Date().toISOString().split('T')[0];
     const timeStr = student.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     showExcelToast("Generating official Single-Page A4 Assessment PDF...", "info");
 
-    const reportEl = buildExcelA4ReportElement(first, last, batch, dateStr, timeStr);
+    const reportEl = buildExcelA4ReportElement(fullName, '', batch, dateStr, timeStr);
     reportEl.style.position = 'fixed';
     reportEl.style.left = '0';
     reportEl.style.top = '0';
@@ -4134,14 +4190,16 @@
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     const first = student.firstName || 'Alex';
+    const middle = student.middleName || '';
     const last = student.lastName || 'Morgan';
+    const fullName = student.name || [first, middle, last].filter(Boolean).join(' ');
     const batch = student.batchInput || '101';
     const dateStr = student.date || new Date().toISOString().split('T')[0];
     const timeStr = student.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     showExcelToast("Rendering High-Resolution Assessment PNG...", "info");
 
-    const reportEl = buildExcelA4ReportElement(first, last, batch, dateStr, timeStr);
+    const reportEl = buildExcelA4ReportElement(fullName, '', batch, dateStr, timeStr);
     reportEl.style.position = 'fixed';
     reportEl.style.left = '0';
     reportEl.style.top = '0';

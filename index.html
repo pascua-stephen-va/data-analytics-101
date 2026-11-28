@@ -109,6 +109,50 @@
         console.warn('Initial theme detection error:', e);
       }
     })();
+
+    // Account-Scoped Progress Storage Bridge (prevents cross-account leakage on shared devices)
+    (function () {
+      window.__DA101_ACTIVE_UID__ = window.__DA101_ACTIVE_UID__ || null;
+      window.__DA101_STORAGE__ = {
+        getUid: function () {
+          return window.__DA101_ACTIVE_UID__ || null;
+        },
+        key: function (baseKey) {
+          var uid = this.getUid();
+          if (!uid) return null;
+          var safe = String(uid).replace(/[^a-zA-Z0-9_-]/g, '');
+          return safe ? 'da101_u_' + safe + '__' + baseKey : null;
+        },
+        getItem: function (baseKey) {
+          var k = this.key(baseKey);
+          if (!k) return null;
+          try {
+            return localStorage.getItem(k);
+          } catch (e) {
+            return null;
+          }
+        },
+        setItem: function (baseKey, val) {
+          var k = this.key(baseKey);
+          if (!k) return;
+          try {
+            localStorage.setItem(k, val);
+          } catch (e) {}
+        },
+        removeItem: function (baseKey) {
+          var k = this.key(baseKey);
+          if (!k) return;
+          try {
+            localStorage.removeItem(k);
+          } catch (e) {}
+        },
+        notifySubmit: function (moduleId) {
+          try {
+            window.dispatchEvent(new CustomEvent('da101progresssubmit', { detail: { moduleId: moduleId } }));
+          } catch (e) {}
+        }
+      };
+    })();
   </script>
 
   <style>
@@ -117,12 +161,17 @@
       --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
       --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
       --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
-      --md-sys-motion-easing-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
-      --md-sys-motion-easing-spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
-      --md-sys-motion-easing-fluid: cubic-bezier(0.2, 0.0, 0, 1.0);
-      --md-sys-motion-duration-short: 150ms;
-      --md-sys-motion-duration-medium: 300ms;
-      --md-sys-motion-duration-long: 500ms;
+      --md-sys-motion-spring-spatial-fast: cubic-bezier(0.34, 1.48, 0.64, 1);
+      --md-sys-motion-spring-spatial-default: cubic-bezier(0.28, 1.38, 0.56, 1);
+      --md-sys-motion-spring-spatial-slow: cubic-bezier(0.22, 1.24, 0.48, 1);
+      --md-sys-motion-effects-fast: cubic-bezier(0.2, 0, 0, 1);
+      --md-sys-motion-effects-default: cubic-bezier(0.2, 0, 0, 1);
+      --md-sys-motion-easing-spring: var(--md-sys-motion-spring-spatial-default);
+      --md-sys-motion-easing-spring-bounce: var(--md-sys-motion-spring-spatial-fast);
+      --md-sys-motion-easing-fluid: var(--md-sys-motion-effects-default);
+      --md-sys-motion-duration-short: 180ms;
+      --md-sys-motion-duration-medium: 360ms;
+      --md-sys-motion-duration-long: 520ms;
 
       /* Material 3 Expressive Elevation & Squircle Radii */
       --md-sys-shape-corner-full: 9999px;
@@ -280,22 +329,21 @@
       background: #94a3b8;
     }
 
-    /* M3 Expressive Card with Spring Hover Reaction */
+    /* M3 Expressive Card with GPU-Only Lift & Tactile Press (60fps) */
     .m3-card-expressive {
       border-radius: 28px;
-      transition: transform 0.35s var(--md-sys-motion-easing-spring), 
-                  box-shadow 0.35s var(--md-sys-motion-easing-fluid), 
-                  border-color 0.25s ease;
-      will-change: transform, box-shadow;
+      transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1),
+                  opacity 0.22s cubic-bezier(0.2, 0, 0, 1);
+      will-change: transform;
     }
     .m3-card-expressive:hover {
       transform: translateY(-4px) scale(1.008);
-      box-shadow: 0 20px 35px -8px rgba(0, 0, 0, 0.4), 0 0 25px rgba(59, 130, 246, 0.18);
+      box-shadow: 0 22px 38px -10px rgba(0, 0, 0, 0.42), 0 0 24px rgba(59, 130, 246, 0.18);
       border-color: rgba(96, 165, 250, 0.65);
     }
     .m3-card-expressive:active {
       transform: translateY(-1px) scale(0.985);
-      transition-duration: 0.12s;
+      transition-duration: 0.11s;
     }
 
     /* Disable press/hover scale bounce and ripple flash on Student Information card & form inputs */
@@ -303,14 +351,16 @@
     .m3-card-expressive.no-press-anim:hover,
     .m3-card-expressive.no-press-anim:active {
       transform: none !important;
+      border-radius: 28px !important;
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.12) !important;
       border-color: rgb(30, 41, 59) !important;
-      transition: border-color 0.2s ease !important;
+      transition: none !important;
     }
     html:not(.dark) .m3-card-expressive.no-press-anim,
     html:not(.dark) .m3-card-expressive.no-press-anim:hover,
     html:not(.dark) .m3-card-expressive.no-press-anim:active {
       transform: none !important;
+      border-radius: 28px !important;
       border-color: #cbd5e1 !important;
       box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
     }
@@ -318,25 +368,22 @@
       display: none !important;
     }
 
-    /* Universal M3 Hover React */
+    /* Universal M3 Expressive Hover React (GPU transform + opacity only) */
     .m3-hover-react {
       position: relative;
       overflow: hidden;
-      transition: transform 0.28s var(--md-sys-motion-easing-spring), 
-                  box-shadow 0.25s ease, 
-                  background-color 0.2s ease, 
-                  border-color 0.2s ease, 
-                  color 0.2s ease;
+      transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1),
+                  opacity 0.18s cubic-bezier(0.2, 0, 0, 1);
     }
     .m3-hover-react:hover {
-      transform: translateY(-1.5px);
+      transform: translateY(-2px);
     }
     .m3-hover-react:active {
-      transform: translateY(0) scale(0.965);
+      transform: translateY(0) scale(0.96);
       transition-duration: 0.1s;
     }
 
-    /* M3 Button Core Architecture */
+    /* M3 Expressive Button Core Architecture (GPU transform + opacity only) */
     .m3-btn {
       position: relative;
       overflow: hidden;
@@ -350,18 +397,15 @@
       cursor: pointer;
       user-select: none;
       white-space: nowrap;
-      transition: transform 0.28s var(--md-sys-motion-easing-spring),
-                  box-shadow 0.25s ease,
-                  background-color 0.2s ease,
-                  border-color 0.2s ease,
-                  color 0.2s ease;
+      transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1),
+                  opacity 0.18s cubic-bezier(0.2, 0, 0, 1);
     }
     .m3-btn:hover {
-      transform: translateY(-2px);
+      transform: translateY(-2px) scale(1.015);
     }
     .m3-btn:active {
-      transform: translateY(0) scale(0.95);
-      transition-duration: 0.08s;
+      transform: translateY(0) scale(0.955);
+      transition-duration: 0.1s;
     }
 
     /* M3 Button Variants */
@@ -421,8 +465,8 @@
     }
 
     @keyframes m3-hero-pulse {
-      0%, 100% { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25), 0 0 35px rgba(255, 255, 255, 0.4); }
-      50% { box-shadow: 0 16px 38px rgba(0, 0, 0, 0.3), 0 0 60px rgba(255, 255, 255, 0.7); }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
     }
 
     /* M3 Ripple Wave Animation */
@@ -441,29 +485,110 @@
       }
     }
 
-    /* Page View Morphing Container Transition */
+    /* Page View Transition (Fast 240ms Fade + Vertical Slide, M3 Expressive Easing) */
     .m3-page-transition {
-      transition: transform 0.32s var(--md-sys-motion-easing-emphasized-decelerate),
-                  opacity 0.28s var(--md-sys-motion-easing-emphasized-decelerate),
-                  filter 0.28s ease;
-      will-change: transform, opacity, filter;
+      transition: transform 240ms cubic-bezier(0.2, 0, 0, 1),
+                  opacity 220ms cubic-bezier(0.2, 0, 0, 1);
+      will-change: transform, opacity;
     }
     .m3-page-exit {
-      transform: scale(0.96) translateY(8px);
+      transform: translateY(-8px);
       opacity: 0;
-      filter: blur(4px);
       pointer-events: none;
     }
     .m3-page-enter-prep {
-      transform: scale(1.03) translateY(-6px);
+      transform: translateY(12px);
       opacity: 0;
-      filter: blur(5px);
       pointer-events: none;
     }
     .m3-page-enter-active {
-      transform: scale(1) translateY(0);
+      transform: translateY(0);
       opacity: 1;
-      filter: blur(0);
+    }
+
+    /* Home Module Cards Staggered Entrance (GPU transform + opacity only) */
+    @keyframes da-card-stagger-in {
+      0% {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .da-cards-reveal > [data-module-id] {
+      animation: da-card-stagger-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
+    }
+    .da-cards-reveal > [data-module-id]:nth-child(1) { animation-delay: 0ms; }
+    .da-cards-reveal > [data-module-id]:nth-child(2) { animation-delay: 55ms; }
+    .da-cards-reveal > [data-module-id]:nth-child(3) { animation-delay: 110ms; }
+    .da-cards-reveal > [data-module-id]:nth-child(4) { animation-delay: 165ms; }
+
+    /* Portal Tab Subtle Fade + Slide */
+    @keyframes da-panel-enter {
+      0% {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .da-panel-enter {
+      animation: da-panel-enter 230ms cubic-bezier(0.2, 0, 0, 1) both;
+    }
+
+    /* Smooth Header & Card Progress Bar Width Transition */
+    .da-progress-fill {
+      transition: width 360ms cubic-bezier(0.2, 0, 0, 1);
+      will-change: width;
+    }
+
+    /* Spring Pop for Module Completed Badges & Exercise Verification Checkmarks */
+    @keyframes m3-spring-pop {
+      0% {
+        opacity: 0;
+        transform: scale(0.72);
+      }
+      65% {
+        opacity: 1;
+        transform: scale(1.08);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+    #sqlBtnModuleCompleted:not(.hidden),
+    #excelBtnModuleCompleted:not(.hidden),
+    #orderingBtnModuleCompleted:not(.hidden),
+    #moviesBtnModuleCompleted:not(.hidden),
+    #tabBtnCompletion:not(.hidden),
+    #excelTabBtnCompletion:not(.hidden),
+    #stepFeedback i.ph-check-circle-fill,
+    #excelTaskLockBadge i.ph-check-circle-fill,
+    [id*="Feedback"] i.ph-check-circle-fill,
+    .da-check-pop {
+      animation: m3-spring-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    /* Scoped Gentle Cross-Fade on Light / Dark / Auto Theme Switch */
+    html.da-theme-transitioning body,
+    html.da-theme-transitioning header,
+    html.da-theme-transitioning main,
+    html.da-theme-transitioning footer,
+    html.da-theme-transitioning #homeScreenView,
+    html.da-theme-transitioning #labAppView,
+    html.da-theme-transitioning #excelLabAppView,
+    html.da-theme-transitioning #orderingLabAppView,
+    html.da-theme-transitioning #moviesLabAppView,
+    html.da-theme-transitioning .m3-card-expressive,
+    html.da-theme-transitioning .da-analytics-dashboard {
+      transition: background-color 260ms cubic-bezier(0.2, 0, 0, 1),
+                  color 260ms cubic-bezier(0.2, 0, 0, 1),
+                  border-color 260ms cubic-bezier(0.2, 0, 0, 1) !important;
     }
 
     /* Surface Containers */
@@ -471,7 +596,7 @@
       background-color: #ffffff;
       box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
       border-radius: 20px;
-      transition: all 0.25s var(--md-sys-motion-easing-emphasized);
+      transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.22s cubic-bezier(0.2, 0, 0, 1);
     }
 
     /* Segmented Control Pill Container */
@@ -814,27 +939,28 @@
       position: relative;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      justify-content: center;
+      width: 34px;
       height: 34px;
-      padding: 0 12px 0 9px;
+      padding: 0;
       border-radius: 9999px;
       font-family: var(--font-ui) !important;
       font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.015em;
+      font-weight: 700;
       cursor: pointer;
       user-select: none;
       white-space: nowrap;
-      border: 1px solid rgba(59, 130, 246, 0.32);
+      flex-shrink: 0;
+      border: 1px solid rgba(59, 130, 246, 0.35);
       background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.85));
       color: #e2e8f0;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
       transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     }
     .da-theme-toggle-btn:hover {
-      border-color: rgba(96, 165, 250, 0.6);
+      border-color: rgba(96, 165, 250, 0.65);
       color: #ffffff;
-      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.12);
     }
     .da-theme-toggle-btn:focus-visible {
       outline: 2px solid #38bdf8;
@@ -859,15 +985,9 @@
     .da-theme-icon-moon {
       color: #93c5fd;
     }
-    .da-theme-toggle-label {
-      line-height: 1;
-    }
-    .da-theme-auto-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 9999px;
-      background-color: #38bdf8;
-      box-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
+    .da-theme-icon-auto {
+      color: #38bdf8;
+      font-family: var(--font-ui) !important;
     }
 
     /* Light Mode Styling for Theme Toggle */
@@ -888,6 +1008,10 @@
     html.light .da-theme-icon-sun {
       color: #d97706;
     }
+    html:not(.dark) .da-theme-icon-auto,
+    html.light .da-theme-icon-auto {
+      color: #0284c7;
+    }
 
     /* Excel Green Header Variant */
     .da-theme-toggle-excel {
@@ -900,6 +1024,9 @@
       border-color: rgba(52, 211, 153, 0.7);
       color: #ffffff;
     }
+    .da-theme-toggle-excel .da-theme-icon-auto {
+      color: #6ee7b7;
+    }
 
     /* Ordering Indigo Header Variant */
     .da-theme-toggle-ordering {
@@ -911,6 +1038,68 @@
       background: rgba(36, 41, 107, 0.95);
       border-color: rgba(165, 180, 252, 0.7);
       color: #ffffff;
+    }
+    .da-theme-toggle-ordering .da-theme-icon-auto {
+      color: #a5b4fc;
+    }
+
+    /* Header Tools Dropdown Menu (Animated by Framer Motion HeaderToolsMenu) */
+    .da-tools-dropdown {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .da-tools-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 184px;
+      padding: 6px;
+      border-radius: 16px;
+      background: #131a27;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: 0 18px 36px -8px rgba(2, 6, 23, 0.65);
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transform-origin: top right;
+    }
+    .da-tools-menu.hidden {
+      display: none !important;
+    }
+    .da-tools-menu-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e8f0;
+      text-align: left;
+      transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+                  opacity 0.16s cubic-bezier(0.2, 0, 0, 1);
+      cursor: pointer;
+    }
+    .da-tools-menu-item:hover {
+      background: rgba(59, 130, 246, 0.18);
+      color: #ffffff;
+    }
+    .da-tools-menu-item:active {
+      transform: scale(0.97);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
 
     /* ========================================================= */
@@ -2346,6 +2535,9 @@
       </div>
 
       <div class="flex items-center space-x-2 sm:space-x-3">
+        <!-- Signed-in Student / Instructor Access Controls -->
+        <div id="homeHeaderAccountSlot" class="inline-flex items-center"></div>
+
         <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
         <div id="themeToggleSlotHome" class="theme-toggle-slot" data-theme-variant="default"></div>
 
@@ -2358,7 +2550,9 @@
 
     <!-- Main Content Container -->
     <main class="flex-1 max-w-6xl w-full mx-auto px-4 md:px-8 py-8 space-y-8">
-      
+      <!-- Expired Export-Only Mode Banner Slot -->
+      <div id="expiredExportBannerSlot"></div>
+
       <!-- Navigation Tabs: Modules & Practical Labs -->
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
         <div class="flex items-center gap-2 p-1.5 bg-slate-200/80 dark:bg-slate-900/90 rounded-2xl border border-slate-300/80 dark:border-slate-800" role="tablist">
@@ -2475,52 +2669,6 @@
           </div>
         </div>
 
-        <!-- Student Information & Academic Credentials (Moved to Home Selection) -->
-        <div id="studentInfoCard" class="m3-card-expressive no-ripple no-press-anim bg-[#151c2a] border border-slate-800 p-5 md:p-6 shadow-xl space-y-4 rounded-[24px]">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <i class="ph ph-identification-card text-xl"></i>
-            </div>
-            <div>
-              <h2 class="text-base font-extrabold text-white tracking-tight flex items-center gap-2">
-                Student Information &amp; Credentials
-              </h2>
-              <p class="text-[11px] text-slate-400 font-normal">
-                Set your student identity here. These credentials are automatically synced and included on official laboratory assessment reports and completion exports.
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-3 py-1 rounded-full w-fit">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Profile Verified</span>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-          <div>
-            <label for="homeStudentFirstName" class="block text-[11px] font-bold text-slate-300 mb-1.5">First Name</label>
-            <input type="text" id="homeStudentFirstName" placeholder="e.g. Alex" oninput="handleStudentInfoChange()" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
-          </div>
-          <div>
-            <label for="homeStudentLastName" class="block text-[11px] font-bold text-slate-300 mb-1.5">Last Name</label>
-            <input type="text" id="homeStudentLastName" placeholder="e.g. Morgan" oninput="handleStudentInfoChange()" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
-          </div>
-          <div>
-            <label for="homeStudentBatch" class="block text-[11px] font-bold text-slate-300 mb-1.5">Batch Number</label>
-            <input type="number" id="homeStudentBatch" min="1" max="999" placeholder="e.g. 1 to 999" oninput="validateBatchInput(this); handleStudentInfoChange();" class="no-ripple w-full text-xs px-3.5 py-2.5 bg-[#0e131d] border border-slate-700/80 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none text-slate-100 font-medium placeholder-slate-500 transition-colors" />
-          </div>
-          <div>
-            <span class="block text-[11px] font-bold text-slate-300 mb-1.5">Session Date &amp; Time</span>
-            <div class="flex items-center gap-2 h-[41px] px-3 bg-[#0e131d] border border-slate-700/80 rounded-xl text-slate-300 font-mono text-[11px] select-none">
-              <span id="homeStudentDateText">2026-09-02</span>
-              <span class="text-slate-600">&bull;</span>
-              <span id="homeStudentTimeText">18:35</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Activities Grid Section -->
       <div class="space-y-4">
         <div class="flex items-center justify-between">
@@ -2531,10 +2679,10 @@
           <span class="text-xs text-slate-400 font-medium">4 Active Modules</span>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="homeModuleCardsGrid" class="da-cards-reveal grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           <!-- ACTIVITY 01: Transforming Data with Excel (Active Lab) -->
-          <div class="m3-card-expressive bg-[#132018] border-2 border-emerald-500/40 hover:border-emerald-500/70 shadow-2xl overflow-hidden flex flex-col group">
+          <div data-module-id="excel" class="m3-card-expressive bg-[#132018] border-2 border-emerald-500/40 hover:border-emerald-500/70 shadow-2xl overflow-hidden flex flex-col group">
             
             <!-- Graphic Header Banner -->
             <div class="h-32 bg-gradient-to-r from-emerald-950 via-emerald-900 to-slate-900 relative overflow-hidden border-b border-emerald-800/60 p-4 flex items-end justify-between select-none">
@@ -2597,12 +2745,12 @@
                   <span id="homeCardProgressTextExcel" class="font-bold text-emerald-400">0 / 20 completed</span>
                 </div>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700/60">
-                  <div id="homeCardProgressBarExcel" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+                  <div id="homeCardProgressBarExcel" class="da-progress-fill bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width: 0%;"></div>
                 </div>
               </div>
 
               <!-- Card Action Buttons -->
-              <div class="flex items-center gap-2 pt-1">
+              <div class="da-card-standard-actions flex items-center gap-2 pt-1">
                 <button onclick="openActivity('transforming_data_with_excel')" class="m3-btn flex-1 py-3 px-4 text-xs font-bold gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl shadow-md active:scale-95 transition">
                   <i class="ph ph-play-fill text-sm"></i>
                   <span id="homeLaunchBtnTextExcel">Launch Lab</span>
@@ -2615,12 +2763,13 @@
                   <i class="ph ph-info font-bold text-sm"></i>
                 </button>
               </div>
+              <div id="moduleExportSlotExcel" class="module-export-slot" data-export-module="excel"></div>
             </div>
 
           </div>
 
           <!-- SEATWORK 02: SQL Around the World (Active Lab) -->
-          <div class="m3-card-expressive bg-[#151e2d] border-2 border-blue-500/40 hover:border-blue-500/70 shadow-2xl overflow-hidden flex flex-col group">
+          <div data-module-id="sql_world" class="m3-card-expressive bg-[#151e2d] border-2 border-blue-500/40 hover:border-blue-500/70 shadow-2xl overflow-hidden flex flex-col group">
             
             <!-- Graphic Header Banner -->
             <div class="h-32 bg-gradient-to-r from-blue-900/70 via-sky-800/50 to-slate-900/90 relative overflow-hidden border-b border-slate-800/80 p-4 flex items-end justify-between select-none">
@@ -2674,12 +2823,12 @@
                   <span id="homeCardProgressText" class="font-bold text-emerald-400">0 / 12 completed</span>
                 </div>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700/60">
-                  <div id="homeCardProgressBar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+                  <div id="homeCardProgressBar" class="da-progress-fill bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width: 0%;"></div>
                 </div>
               </div>
 
               <!-- Card Action Buttons -->
-              <div class="flex items-center gap-2 pt-1">
+              <div class="da-card-standard-actions flex items-center gap-2 pt-1">
                 <button id="btnHomeLaunchSql" onclick="openActivity('sql_around_the_world')" class="m3-btn m3-btn-filled flex-1 py-3 px-4 text-xs font-bold gap-1.5 rounded-xl">
                   <i class="ph ph-play-fill text-sm"></i>
                   <span id="homeLaunchBtnText">Launch Lab</span>
@@ -2692,12 +2841,13 @@
                   <i class="ph ph-info font-bold text-sm"></i>
                 </button>
               </div>
+              <div id="moduleExportSlotSqlWorld" class="module-export-slot" data-export-module="sql_world"></div>
             </div>
 
           </div>
 
           <!-- SEATWORK 03: Ordering and Limiting (ACTIVE LAB) -->
-          <div class="m3-card-expressive bg-[#15172b] border border-indigo-900/80 shadow-xl overflow-hidden flex flex-col justify-between group transition-all duration-300 hover:border-indigo-500/60 hover:shadow-indigo-950/40">
+          <div data-module-id="sql_ordering" class="m3-card-expressive bg-[#15172b] border border-indigo-900/80 shadow-xl overflow-hidden flex flex-col justify-between group hover:border-indigo-500/60 hover:shadow-indigo-950/40">
             
             <!-- Card Visual Banner Header -->
             <div class="h-36 bg-gradient-to-br from-[#1e1b4b] via-[#2e1065] to-[#0f172a] relative overflow-hidden p-5 flex items-start justify-between">
@@ -2752,12 +2902,12 @@
                   <span id="homeCardProgressTextOrdering" class="font-bold text-emerald-400">0 / 10 completed</span>
                 </div>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700/60">
-                  <div id="homeCardProgressBarOrdering" class="bg-gradient-to-r from-sky-400 to-indigo-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+                  <div id="homeCardProgressBarOrdering" class="da-progress-fill bg-gradient-to-r from-sky-400 to-indigo-400 h-full rounded-full" style="width: 0%;"></div>
                 </div>
               </div>
 
               <!-- Card Action Buttons -->
-              <div class="flex items-center gap-2 pt-1">
+              <div class="da-card-standard-actions flex items-center gap-2 pt-1">
                 <button id="btnHomeLaunchOrdering" onclick="openActivity('ordering_and_limiting')" class="m3-btn m3-btn-filled flex-1 py-3 px-4 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-md">
                   <i class="ph ph-play-fill text-sm"></i>
                   <span id="homeLaunchBtnTextOrdering">Launch Lab</span>
@@ -2770,12 +2920,13 @@
                   <i class="ph ph-info font-bold text-sm"></i>
                 </button>
               </div>
+              <div id="moduleExportSlotOrdering" class="module-export-slot" data-export-module="sql_ordering"></div>
             </div>
 
           </div>
 
           <!-- ASYNCHRONOUS 01: Successful Movies (ACTIVE LAB) -->
-          <div class="m3-card-expressive bg-[#111827] border border-blue-900/80 shadow-xl overflow-hidden flex flex-col justify-between group transition-all duration-300 hover:border-blue-500/60 hover:shadow-blue-950/40">
+          <div data-module-id="sql_movies" class="m3-card-expressive bg-[#111827] border border-blue-900/80 shadow-xl overflow-hidden flex flex-col justify-between group hover:border-blue-500/60 hover:shadow-blue-950/40">
             
             <!-- Card Visual Banner Header -->
             <div class="h-36 bg-gradient-to-br from-[#1e3a8a] via-[#1e293b] to-[#0f172a] relative overflow-hidden p-5 flex items-start justify-between">
@@ -2836,12 +2987,12 @@
                   <span id="homeCardProgressTextMovies" class="font-bold text-emerald-400">0 / 10 completed</span>
                 </div>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700/60">
-                  <div id="homeCardProgressBarMovies" class="bg-gradient-to-r from-blue-500 to-sky-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+                  <div id="homeCardProgressBarMovies" class="da-progress-fill bg-gradient-to-r from-blue-500 to-sky-400 h-full rounded-full" style="width: 0%;"></div>
                 </div>
               </div>
 
               <!-- Card Action Buttons -->
-              <div class="flex items-center gap-2 pt-1">
+              <div class="da-card-standard-actions flex items-center gap-2 pt-1">
                 <button id="btnHomeLaunchMovies" onclick="openActivity('successful_movies')" class="m3-btn m3-btn-filled flex-1 py-3 px-4 text-xs font-bold gap-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-md">
                   <i class="ph ph-play-fill text-sm"></i>
                   <span id="homeLaunchBtnTextMovies">Launch Lab</span>
@@ -2854,6 +3005,7 @@
                   <i class="ph ph-info font-bold text-sm"></i>
                 </button>
               </div>
+              <div id="moduleExportSlotMovies" class="module-export-slot" data-export-module="sql_movies"></div>
             </div>
 
           </div>
@@ -2889,22 +3041,7 @@
             <span>Feedback</span>
             <i class="ph ph-arrow-square-out text-xs opacity-80"></i>
           </a>
-          <button type="button" onclick="switchPortalTab('lessons'); document.getElementById('homeScreenView').scrollTo({top:0, behavior:'smooth'});" class="m3-btn m3-btn-tonal px-3.5 py-2 text-xs font-bold gap-1.5 rounded-xl transition cursor-pointer">
-            <i class="ph ph-book-open-text text-sm"></i>
-            <span>Modules</span>
-          </button>
-          <button type="button" onclick="switchPortalTab('activities'); document.getElementById('homeScreenView').scrollTo({top:0, behavior:'smooth'});" class="m3-btn m3-btn-tonal px-3.5 py-2 text-xs font-bold gap-1.5 rounded-xl transition cursor-pointer">
-            <i class="ph ph-flask text-sm"></i>
-            <span>Practical Labs</span>
-          </button>
-          <button type="button" onclick="openExcelShortcutsModal()" class="m3-btn m3-btn-outlined px-3.5 py-2 text-xs font-bold gap-1.5 rounded-xl transition cursor-pointer">
-            <i class="ph ph-keyboard text-sm"></i>
-            <span>Shortcuts</span>
-          </button>
-          <button type="button" onclick="document.getElementById('homeScreenView').scrollTo({top:0, behavior:'smooth'});" class="m3-btn m3-btn-outlined px-3 py-2 text-xs font-bold gap-1 rounded-xl transition cursor-pointer" title="Scroll to Top">
-            <i class="ph ph-arrow-up text-sm"></i>
-            <span>Top</span>
-          </button>
+          <div id="footerInstructorSlot" class="inline-flex items-center"></div>
         </div>
       </footer>
 
@@ -2916,53 +3053,39 @@
   <!-- ========================================== -->
   <div id="labAppView" class="m3-page-transition hidden flex-1 flex flex-col h-full overflow-hidden">
 
-  <!-- Top Header Bar (M3 Dark Surface #1b222d) -->
-  <header id="mainHeader" class="bg-[#18202d] text-white px-4 md:px-6 py-2.5 flex items-center justify-between border-b border-slate-800 shrink-0 shadow-sm">
-    <div class="flex items-center space-x-3">
-      <!-- Back to Activities Selection Button -->
-      <button id="btnHeaderHome" onclick="goToHomeScreen()" title="Back to Home Activities Selection" class="m3-btn m3-btn-tonal px-3.5 py-1.5 text-xs font-bold gap-1.5">
+  <!-- Top Header Bar (Trimmed M3 Dark Surface #18202d) -->
+  <header id="mainHeader" class="bg-[#18202d] text-white px-4 md:px-6 py-2 flex items-center justify-between gap-3 border-b border-slate-800 shrink-0 shadow-sm">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <button id="btnHeaderHome" onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 shrink-0">
         <i class="ph ph-arrow-left text-sm font-bold text-sky-400"></i>
         <span>Activities</span>
       </button>
-      <button type="button" onclick="openLessonPlanModal('sql_world')" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1 text-sky-300 hover:text-white" title="Review Lesson Plan, Syntax & Traps">
+      <button type="button" onclick="openLessonPlanModal('sql_world')" class="m3-btn m3-btn-tonal px-2.5 py-1.5 text-xs font-bold gap-1 text-sky-300 hover:text-white shrink-0" title="Review Lesson Plan, Syntax & Traps">
         <i class="ph ph-book-open text-sm"></i>
-        <span class="hidden md:inline">Lesson Plan</span>
+        <span class="hidden lg:inline">Lesson</span>
       </button>
-      <div class="flex items-center gap-2">
-        <button onclick="goToHomeScreen()" class="text-xs text-slate-400 hover:text-slate-200 font-medium transition cursor-pointer hidden sm:flex items-center gap-1">
-          <i class="ph ph-squares-four text-xs"></i> Portal
-        </button>
-        <span class="text-slate-600 font-bold hidden sm:inline">/</span>
-        <span class="font-extrabold text-sm md:text-base tracking-tight text-slate-100">Module 2: SQL Around the World</span>
-        <span class="hidden md:inline-flex text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/25">Data Analytics 101</span>
-        
-        <!-- Conditional Status Badge (Upper-left section): Hidden by default, only displays after 100% completion -->
-        <button id="sqlBtnModuleCompleted" onclick="switchNavTab('completion')" class="hidden m3-btn px-2.5 py-1 text-xs font-black gap-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md animate-pulse">
-          <i class="ph ph-check-circle-fill text-amber-900 text-sm"></i> Module Completed
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="font-extrabold text-sm md:text-base tracking-tight text-slate-100 truncate">Module 2: World SQL</span>
+        <button id="sqlBtnModuleCompleted" onclick="switchNavTab('completion')" class="hidden m3-btn px-2.5 py-1 text-[11px] font-black gap-1 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md shrink-0">
+          <i class="ph ph-check-circle-fill text-amber-900 text-xs"></i> Completed
         </button>
       </div>
     </div>
 
-    <!-- Progress & Controls -->
-    <div class="flex items-center space-x-2 sm:space-x-3">
-      <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
-      <div id="themeToggleSlotSqlWorld" class="theme-toggle-slot" data-theme-variant="default"></div>
+    <!-- Compact Right Cluster: Timer · Progress · Circular Theme Toggle · Tools ▾ -->
+    <div class="flex items-center gap-2 shrink-0">
+      <div id="timerSlotSqlWorld" class="header-timer-slot" data-timer-variant="default"></div>
 
-      <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
-        <span class="text-xs text-slate-400 font-medium">Progress</span>
-        <div class="w-24 md:w-32 bg-slate-700/80 rounded-full h-2.5 overflow-hidden p-0.5">
-          <div id="topProgressBar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 8%;"></div>
+      <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-full px-2.5 py-1 shadow-inner" title="Module Progress">
+        <div class="w-16 md:w-20 bg-slate-700/80 rounded-full h-2 overflow-hidden">
+          <div id="topProgressBar" class="da-progress-fill bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width: 8%;"></div>
         </div>
-        <span id="topProgressText" class="text-xs font-bold text-emerald-300 font-mono">0 / 12</span>
+        <span id="topProgressText" class="text-[11px] font-bold text-emerald-300 font-mono tabular-nums">0 / 12</span>
       </div>
 
-      <button id="btnResetLab" onclick="resetLab()" class="m3-btn m3-btn-outlined px-3.5 py-1.5 text-xs font-bold gap-1.5">
-        <i class="ph ph-arrow-clockwise font-bold"></i> Reset
-      </button>
+      <div id="themeToggleSlotSqlWorld" class="theme-toggle-slot" data-theme-variant="default"></div>
 
-      <button id="btnInfoModal" onclick="showNotification('Data Analytics 101: Write SQL queries, test using Run Code, and click Submit to check your solution.')" class="m3-btn m3-btn-tonal w-8 h-8 rounded-full flex items-center justify-center p-0" title="Help &amp; Info">
-        <i class="ph ph-question text-base font-bold"></i>
-      </button>
+      <div id="toolsSlotSqlWorld" class="header-tools-slot" data-tools-lab="sql_world"></div>
     </div>
   </header>
 
@@ -3300,57 +3423,39 @@
   <!-- ================================================= -->
   <div id="excelLabAppView" class="m3-page-transition hidden flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e14]">
     
-    <!-- Top Header Bar (Excel Themed) -->
-    <header class="bg-[#104b2b] text-white px-4 md:px-6 py-2.5 flex items-center justify-between border-b border-emerald-800 shrink-0 shadow-sm select-none">
-      <div class="flex items-center space-x-3">
-        <!-- Back to Activities Button -->
-        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-emerald-900/60 hover:bg-emerald-800 text-white border border-emerald-700/60">
+    <!-- Top Header Bar (Trimmed Excel Themed) -->
+    <header class="bg-[#104b2b] text-white px-4 md:px-6 py-2 flex items-center justify-between gap-3 border-b border-emerald-800 shrink-0 shadow-sm select-none">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-emerald-900/60 hover:bg-emerald-800 text-white border border-emerald-700/60 shrink-0">
           <i class="ph ph-arrow-left text-sm font-bold text-emerald-300"></i>
           <span>Activities</span>
         </button>
-        <button type="button" onclick="openLessonPlanModal('excel')" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1 bg-emerald-900/60 hover:bg-emerald-800 text-white border border-emerald-700/60" title="Review 18 Excel Formulas & Tools">
+        <button type="button" onclick="openLessonPlanModal('excel')" class="m3-btn m3-btn-tonal px-2.5 py-1.5 text-xs font-bold gap-1 bg-emerald-900/60 hover:bg-emerald-800 text-white border border-emerald-700/60 shrink-0" title="Review 18 Excel Formulas & Tools">
           <i class="ph ph-book-open text-sm text-emerald-300"></i>
-          <span class="hidden md:inline">Lesson Plan</span>
+          <span class="hidden lg:inline">Lesson</span>
         </button>
-        <div class="flex items-center gap-2">
-          <button onclick="goToHomeScreen()" class="text-xs text-emerald-300/80 hover:text-white font-medium transition cursor-pointer hidden sm:flex items-center gap-1">
-            <i class="ph ph-squares-four text-xs"></i> Portal
-          </button>
-          <span class="text-emerald-700 font-bold hidden sm:inline">/</span>
-          <span class="font-extrabold text-sm md:text-base tracking-tight text-white">Module 1: Transforming Data with Excel</span>
-          <span class="hidden md:inline-flex text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-400/20 text-emerald-200 border border-emerald-400/30">Spreadsheet Master</span>
-          
-          <!-- Conditional Status Badge (Upper-left section): Hidden by default, only displays after 100% completion -->
-          <button id="excelBtnModuleCompleted" onclick="switchExcelNavTab('completion')" class="hidden m3-btn px-2.5 py-1 text-xs font-black gap-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md animate-pulse">
-            <i class="ph ph-check-circle-fill text-amber-900 text-sm"></i> Module Completed
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-extrabold text-sm md:text-base tracking-tight text-white truncate">Module 1: Excel Masterclass</span>
+          <button id="excelBtnModuleCompleted" onclick="switchExcelNavTab('completion')" class="hidden m3-btn px-2.5 py-1 text-[11px] font-black gap-1 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md shrink-0">
+            <i class="ph ph-check-circle-fill text-amber-900 text-xs"></i> Completed
           </button>
         </div>
       </div>
 
-      <!-- Progress & Quick Controls -->
-      <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
-        <div id="themeToggleSlotExcel" class="theme-toggle-slot" data-theme-variant="excel"></div>
+      <!-- Compact Right Cluster: Timer · Progress · Circular Theme Toggle · Tools ▾ -->
+      <div class="flex items-center gap-2 shrink-0">
+        <div id="timerSlotExcel" class="header-timer-slot" data-timer-variant="excel"></div>
 
-        <div class="flex items-center space-x-2.5 bg-emerald-950/70 border border-emerald-700/60 rounded-full px-3.5 py-1 shadow-inner">
-          <span class="text-xs text-emerald-200/80 font-medium">Progress</span>
-          <div class="w-24 md:w-32 bg-emerald-900/80 rounded-full h-2.5 overflow-hidden p-0.5 border border-emerald-800/50">
-            <div id="excelTopProgressBar" class="bg-gradient-to-r from-emerald-400 to-teal-300 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+        <div class="flex items-center gap-2 bg-emerald-950/70 border border-emerald-700/60 rounded-full px-2.5 py-1 shadow-inner" title="Module Progress">
+          <div class="w-16 md:w-20 bg-emerald-900/80 rounded-full h-2 overflow-hidden">
+            <div id="excelTopProgressBar" class="da-progress-fill bg-gradient-to-r from-emerald-400 to-teal-300 h-full rounded-full" style="width: 0%;"></div>
           </div>
-          <span id="excelTopProgressText" class="text-xs font-bold text-emerald-300 font-mono">0 / 20</span>
+          <span id="excelTopProgressText" class="text-[11px] font-bold text-emerald-300 font-mono tabular-nums">0 / 20</span>
         </div>
 
-        <button onclick="openExcelShortcutsModal()" class="m3-btn m3-btn-outlined px-3 py-1.5 text-xs font-bold gap-1.5 border-emerald-600/70 text-emerald-100 hover:bg-emerald-800/60">
-          <i class="ph ph-keyboard font-bold"></i> Shortcuts
-        </button>
+        <div id="themeToggleSlotExcel" class="theme-toggle-slot" data-theme-variant="excel"></div>
 
-        <button onclick="openExcelCheatSheetModal()" class="m3-btn m3-btn-outlined px-3 py-1.5 text-xs font-bold gap-1.5 border-emerald-600/70 text-emerald-100 hover:bg-emerald-800/60">
-          <i class="ph ph-function font-bold"></i> Formulas
-        </button>
-
-        <button onclick="resetExcelLab()" class="m3-btn m3-btn-outlined px-3 py-1.5 text-xs font-bold gap-1.5 border-emerald-600/70 text-emerald-100 hover:bg-emerald-800/60" title="Reset dataset to initial state">
-          <i class="ph ph-arrow-clockwise font-bold"></i> Reset
-        </button>
+        <div id="toolsSlotExcel" class="header-tools-slot" data-tools-lab="excel"></div>
       </div>
     </header>
 
@@ -3929,49 +4034,39 @@
   <!-- ================================================= -->
   <div id="orderingLabAppView" class="m3-page-transition hidden flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e14]">
     
-    <!-- Top Header Bar (Indigo Themed) -->
-    <header class="bg-[#1e1b4b] text-white px-4 md:px-6 py-2.5 flex items-center justify-between border-b border-indigo-900 shrink-0 shadow-sm select-none">
-      <div class="flex items-center space-x-3">
-        <!-- Back to Activities Button -->
-        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-indigo-950/60 hover:bg-indigo-900 text-white border border-indigo-700/60">
+    <!-- Top Header Bar (Trimmed Indigo Themed) -->
+    <header class="bg-[#1e1b4b] text-white px-4 md:px-6 py-2 flex items-center justify-between gap-3 border-b border-indigo-900 shrink-0 shadow-sm select-none">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-indigo-950/60 hover:bg-indigo-900 text-white border border-indigo-700/60 shrink-0">
           <i class="ph ph-arrow-left text-sm font-bold text-sky-400"></i>
           <span>Activities</span>
         </button>
-        <button type="button" onclick="openLessonPlanModal('sql_ordering')" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1 bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 hover:text-white border border-indigo-700/60" title="Review ORDER BY & LIMIT Lesson Plan">
+        <button type="button" onclick="openLessonPlanModal('sql_ordering')" class="m3-btn m3-btn-tonal px-2.5 py-1.5 text-xs font-bold gap-1 bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 hover:text-white border border-indigo-700/60 shrink-0" title="Review ORDER BY & LIMIT Lesson Plan">
           <i class="ph ph-book-open text-sm"></i>
-          <span class="hidden md:inline">Lesson Plan</span>
+          <span class="hidden lg:inline">Lesson</span>
         </button>
-        <div class="flex items-center gap-2">
-          <button onclick="goToHomeScreen()" class="text-xs text-indigo-300/80 hover:text-white font-medium transition cursor-pointer hidden sm:flex items-center gap-1">
-            <i class="ph ph-squares-four text-xs"></i> Portal
-          </button>
-          <span class="text-indigo-600 font-bold hidden sm:inline">/</span>
-          <span class="font-extrabold text-sm md:text-base tracking-tight text-white">Module 3: Ordering and Limiting</span>
-          <span class="hidden md:inline-flex text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-400/30">SQL Masterclass</span>
-          
-          <!-- Conditional Status Badge (Upper-left section): Hidden by default, only displays after 100% completion -->
-          <button id="orderingBtnModuleCompleted" onclick="window.switchOrderingTab('completion')" class="hidden m3-btn px-2.5 py-1 text-xs font-black gap-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md animate-pulse">
-            <i class="ph ph-check-circle-fill text-amber-900 text-sm"></i> Module Completed
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-extrabold text-sm md:text-base tracking-tight text-white truncate">Module 3: Ordering &amp; Limiting</span>
+          <button id="orderingBtnModuleCompleted" onclick="window.switchOrderingTab('completion')" class="hidden m3-btn px-2.5 py-1 text-[11px] font-black gap-1 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md shrink-0">
+            <i class="ph ph-check-circle-fill text-amber-900 text-xs"></i> Completed
           </button>
         </div>
       </div>
 
-      <!-- Progress & Quick Controls -->
-      <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
-        <div id="themeToggleSlotOrdering" class="theme-toggle-slot" data-theme-variant="ordering"></div>
+      <!-- Compact Right Cluster: Timer · Progress · Circular Theme Toggle · Tools ▾ -->
+      <div class="flex items-center gap-2 shrink-0">
+        <div id="timerSlotOrdering" class="header-timer-slot" data-timer-variant="ordering"></div>
 
-        <div class="flex items-center space-x-2.5 bg-indigo-950/70 border border-indigo-700/60 rounded-full px-3.5 py-1 shadow-inner">
-          <span class="text-xs text-indigo-200/80 font-medium">Progress</span>
-          <div class="w-24 md:w-32 bg-indigo-900/80 rounded-full h-2.5 overflow-hidden p-0.5 border border-indigo-800/50">
-            <div id="orderingTopProgressBar" class="bg-gradient-to-r from-sky-400 to-indigo-300 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+        <div class="flex items-center gap-2 bg-indigo-950/70 border border-indigo-700/60 rounded-full px-2.5 py-1 shadow-inner" title="Module Progress">
+          <div class="w-16 md:w-20 bg-indigo-900/80 rounded-full h-2 overflow-hidden">
+            <div id="orderingTopProgressBar" class="da-progress-fill bg-gradient-to-r from-sky-400 to-indigo-300 h-full rounded-full" style="width: 0%;"></div>
           </div>
-          <span id="orderingTopProgressText" class="text-xs font-bold text-sky-300 font-mono">0 / 10</span>
+          <span id="orderingTopProgressText" class="text-[11px] font-bold text-sky-300 font-mono tabular-nums">0 / 10</span>
         </div>
 
-        <button onclick="window.resetOrderingLab()" class="m3-btn m3-btn-outlined px-3 py-1.5 text-xs font-bold gap-1.5 border-indigo-600/70 text-indigo-100 hover:bg-indigo-800/60" title="Reset all progress">
-          <i class="ph ph-arrow-clockwise font-bold"></i> Reset
-        </button>
+        <div id="themeToggleSlotOrdering" class="theme-toggle-slot" data-theme-variant="ordering"></div>
+
+        <div id="toolsSlotOrdering" class="header-tools-slot" data-tools-lab="sql_ordering"></div>
       </div>
     </header>
 
@@ -4088,49 +4183,39 @@
   <!-- ================================================= -->
   <div id="moviesLabAppView" class="m3-page-transition hidden flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e14]">
     
-    <!-- Top Header Bar (M3 Dark Surface #18202d matching Seatwork 02 reference) -->
-    <header class="bg-[#18202d] text-white px-4 md:px-6 py-2.5 flex items-center justify-between border-b border-slate-800 shrink-0 shadow-sm select-none">
-      <div class="flex items-center space-x-3">
-        <!-- Back to Activities Button -->
-        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/60">
+    <!-- Top Header Bar (Trimmed M3 Dark Surface #18202d) -->
+    <header class="bg-[#18202d] text-white px-4 md:px-6 py-2 flex items-center justify-between gap-3 border-b border-slate-800 shrink-0 shadow-sm select-none">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <button onclick="goToHomeScreen()" title="Back to Activities Selection" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/60 shrink-0">
           <i class="ph ph-arrow-left text-sm font-bold text-sky-400"></i>
           <span>Activities</span>
         </button>
-        <button type="button" onclick="openLessonPlanModal('sql_movies')" class="m3-btn m3-btn-tonal px-3 py-1.5 text-xs font-bold gap-1 bg-slate-800/80 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700/60" title="Review GROUP BY & Aggregates Lesson Plan">
+        <button type="button" onclick="openLessonPlanModal('sql_movies')" class="m3-btn m3-btn-tonal px-2.5 py-1.5 text-xs font-bold gap-1 bg-slate-800/80 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700/60 shrink-0" title="Review GROUP BY & Aggregates Lesson Plan">
           <i class="ph ph-book-open text-sm"></i>
-          <span class="hidden md:inline">Lesson Plan</span>
+          <span class="hidden lg:inline">Lesson</span>
         </button>
-        <div class="flex items-center gap-2">
-          <button onclick="goToHomeScreen()" class="text-xs text-slate-400 hover:text-white font-medium transition cursor-pointer hidden sm:flex items-center gap-1">
-            <i class="ph ph-squares-four text-xs"></i> Portal
-          </button>
-          <span class="text-slate-600 font-bold hidden sm:inline">/</span>
-          <span class="font-extrabold text-sm md:text-base tracking-tight text-white">Module 4: Successful Movies</span>
-          <span class="hidden md:inline-flex text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30">Data Analytics 101</span>
-          
-          <!-- Conditional Status Badge (Upper-left section): Hidden by default, only displays after 100% completion -->
-          <button id="moviesBtnModuleCompleted" onclick="window.switchMoviesTab('completion')" class="hidden m3-btn px-2.5 py-1 text-xs font-black gap-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md animate-pulse">
-            <i class="ph ph-check-circle-fill text-amber-900 text-sm"></i> Module Completed
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-extrabold text-sm md:text-base tracking-tight text-white truncate">Module 4: Successful Movies</span>
+          <button id="moviesBtnModuleCompleted" onclick="window.switchMoviesTab('completion')" class="hidden m3-btn px-2.5 py-1 text-[11px] font-black gap-1 bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-full shadow-md shrink-0">
+            <i class="ph ph-check-circle-fill text-amber-900 text-xs"></i> Completed
           </button>
         </div>
       </div>
 
-      <!-- Progress & Quick Controls -->
-      <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Framer Motion Theme Toggle (System Auto + Manual Override) -->
-        <div id="themeToggleSlotMovies" class="theme-toggle-slot" data-theme-variant="default"></div>
+      <!-- Compact Right Cluster: Timer · Progress · Circular Theme Toggle · Tools ▾ -->
+      <div class="flex items-center gap-2 shrink-0">
+        <div id="timerSlotMovies" class="header-timer-slot" data-timer-variant="default"></div>
 
-        <div class="flex items-center space-x-2.5 bg-slate-800/80 border border-slate-700/80 rounded-full px-3.5 py-1 shadow-inner">
-          <span class="text-xs text-slate-400 font-medium">Progress</span>
-          <div class="w-24 md:w-32 bg-slate-700/80 rounded-full h-2.5 overflow-hidden p-0.5">
-            <div id="moviesTopProgressBar" class="bg-gradient-to-r from-blue-500 to-sky-400 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%;"></div>
+        <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-full px-2.5 py-1 shadow-inner" title="Module Progress">
+          <div class="w-16 md:w-20 bg-slate-700/80 rounded-full h-2 overflow-hidden">
+            <div id="moviesTopProgressBar" class="da-progress-fill bg-gradient-to-r from-blue-500 to-sky-400 h-full rounded-full" style="width: 0%;"></div>
           </div>
-          <span id="moviesTopProgressText" class="text-xs font-bold text-sky-300 font-mono">0 / 10</span>
+          <span id="moviesTopProgressText" class="text-[11px] font-bold text-sky-300 font-mono tabular-nums">0 / 10</span>
         </div>
 
-        <button onclick="window.resetMoviesLab()" class="m3-btn m3-btn-outlined px-3.5 py-1.5 text-xs font-bold gap-1.5 border-slate-700 text-slate-200 hover:bg-slate-800" title="Reset all progress">
-          <i class="ph ph-arrow-clockwise font-bold"></i> Reset
-        </button>
+        <div id="themeToggleSlotMovies" class="theme-toggle-slot" data-theme-variant="default"></div>
+
+        <div id="toolsSlotMovies" class="header-tools-slot" data-tools-lab="sql_movies"></div>
       </div>
     </header>
 
@@ -5034,9 +5119,18 @@
         } catch (e) {}
       }
 
+      var themeTransitionTimer = null;
       window.setAppThemeMode = function (mode) {
         if (mode !== 'light' && mode !== 'dark' && mode !== 'auto') mode = 'auto';
         try {
+          var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (!prefersReduced) {
+            document.documentElement.classList.add('da-theme-transitioning');
+            if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
+            themeTransitionTimer = setTimeout(function () {
+              document.documentElement.classList.remove('da-theme-transitioning');
+            }, 280);
+          }
           localStorage.setItem('da101_theme_mode', mode);
           localStorage.setItem('da101_theme', mode === 'auto' ? getSystemTheme() : mode);
         } catch (e) {}
@@ -5228,7 +5322,133 @@
   <script src="./movies-activity.js"></script>
   <script src="./lesson-plans.js"></script>
   <script>
+    function closeAllHeaderToolsMenus() {
+      document.querySelectorAll('.da-tools-menu').forEach((menu) => menu.classList.add('hidden'));
+    }
+    window.closeAllHeaderToolsMenus = closeAllHeaderToolsMenus;
+
+    function toggleHeaderToolsMenu(menuId, event) {
+      if (event) event.stopPropagation();
+      const target = document.getElementById(menuId);
+      if (!target) return;
+      const wasHidden = target.classList.contains('hidden');
+      closeAllHeaderToolsMenus();
+      if (wasHidden) {
+        target.classList.remove('hidden');
+      }
+    }
+    window.toggleHeaderToolsMenu = toggleHeaderToolsMenu;
+
+    document.addEventListener('click', (e) => {
+      if (!e.target || !e.target.closest('.da-tools-dropdown')) {
+        closeAllHeaderToolsMenus();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAllHeaderToolsMenus();
+    });
+
+    function getModuleAttemptedCount(modId) {
+      try {
+        const store = window.__DA101_STORAGE__;
+        if (modId === 'excel') {
+          if (window.excelState && window.excelState.completedTasks instanceof Set && window.__DA101_ACTIVE_UID__) {
+            return window.excelState.completedTasks.size + (window.excelState.wrongTasks instanceof Set ? window.excelState.wrongTasks.size : 0);
+          }
+          const saved = JSON.parse((store ? store.getItem('excel_module_1_state_v2') : null) || 'null');
+          return (saved && Array.isArray(saved.completedTasks) ? saved.completedTasks.length : 0) +
+            (saved && Array.isArray(saved.wrongTasks) ? saved.wrongTasks.length : 0);
+        }
+        if (modId === 'sql_world') {
+          const c = JSON.parse((store ? store.getItem('sqlLab_completedSteps') : null) || '[]');
+          const w = JSON.parse((store ? store.getItem('sqlLab_wrongSteps') : null) || '[]');
+          return (Array.isArray(c) ? c.length : 0) + (Array.isArray(w) ? w.length : 0);
+        }
+        if (modId === 'sql_ordering') {
+          const saved = JSON.parse((store ? store.getItem('seatwork03_ordering_limiting_state') : null) || 'null');
+          return (saved && Array.isArray(saved.completedSteps) ? saved.completedSteps.length : 0) +
+            (saved && Array.isArray(saved.wrongSteps) ? saved.wrongSteps.length : 0);
+        }
+        if (modId === 'sql_movies') {
+          const raw = store ? store.getItem('asynchronous_01_movies_state_v1') : null;
+          const saved = JSON.parse(raw || 'null');
+          return (saved && Array.isArray(saved.completedSteps) ? saved.completedSteps.length : 0) +
+            (saved && Array.isArray(saved.wrongSteps) ? saved.wrongSteps.length : 0);
+        }
+      } catch (e) {}
+      return 0;
+    }
+
+    function triggerHomeCardsStagger() {
+      const grid = document.getElementById('homeModuleCardsGrid');
+      if (!grid) return;
+      grid.classList.remove('da-cards-reveal');
+      void grid.offsetWidth;
+      grid.classList.add('da-cards-reveal');
+    }
+    window.triggerHomeCardsStagger = triggerHomeCardsStagger;
+
+    // Wrap switchPortalTab so Export-Only Mode locks Lessons tab and animates tab transitions smoothly
+    if (typeof window.switchPortalTab === 'function') {
+      const _origSwitchPortalTab = window.switchPortalTab;
+      window.switchPortalTab = function (tabName) {
+        const access = window.__DA101_ACCESS__;
+        let targetTab = tabName;
+        if (access && access.isExpiredExportOnly && tabName === 'lessons') {
+          if (typeof window.showNotification === 'function') {
+            window.showNotification('Time is up — lessons are locked. Export your module results below.');
+          }
+          targetTab = 'activities';
+        }
+        const res = _origSwitchPortalTab(targetTab);
+        const panel = document.getElementById(targetTab === 'activities' ? 'portalActivitiesContainer' : 'portalLessonsContainer');
+        if (panel) {
+          panel.classList.remove('da-panel-enter');
+          void panel.offsetWidth;
+          panel.classList.add('da-panel-enter');
+        }
+        if (targetTab === 'activities') {
+          triggerHomeCardsStagger();
+        }
+        return res;
+      };
+    }
+
+    window.exportModuleResult = async function (moduleId, format) {
+      if (moduleId === 'excel') {
+        if (format === 'pdf' && typeof window.saveExcelResultAsPDF === 'function') return await window.saveExcelResultAsPDF();
+        if (format === 'png' && typeof window.saveExcelResultAsImage === 'function') return await window.saveExcelResultAsImage();
+      } else if (moduleId === 'sql_world') {
+        if (format === 'pdf' && typeof window.saveResultAsPDF === 'function') return await window.saveResultAsPDF();
+        if (format === 'png' && typeof window.saveResultAsImage === 'function') return await window.saveResultAsImage();
+      } else if (moduleId === 'sql_ordering') {
+        if (format === 'pdf' && typeof window.downloadOrderingResultAsPDF === 'function') return await window.downloadOrderingResultAsPDF();
+        if (format === 'png' && typeof window.downloadOrderingResultAsImage === 'function') return await window.downloadOrderingResultAsImage();
+      } else if (moduleId === 'sql_movies') {
+        if (format === 'pdf' && typeof window.downloadMoviesResultAsPDF === 'function') return await window.downloadMoviesResultAsPDF();
+        if (format === 'png' && typeof window.downloadMoviesResultAsImage === 'function') return await window.downloadMoviesResultAsImage();
+      }
+    };
+
+    function isModuleAllowedByAccess(moduleId) {
+      const access = window.__DA101_ACCESS__;
+      if (!access) return true;
+      if (access.isInstructor) return true;
+      if (access.isExpiredExportOnly) return false;
+      if (!access.hasAccess) return false;
+      return Array.isArray(access.allowedModules) && access.allowedModules.includes(moduleId);
+    }
+
     function openLessonPlanForModule(moduleId, chapterIndex) {
+      if (!isModuleAllowedByAccess(moduleId)) {
+        if (typeof window.showNotification === 'function') {
+          const msg = window.__DA101_ACCESS__ && window.__DA101_ACCESS__.isExpiredExportOnly
+            ? 'Time is up — lessons are locked in Export-Only Mode.'
+            : 'This module is locked by your current class access code.';
+          window.showNotification(msg);
+        }
+        return;
+      }
       if (typeof window.switchPortalTab === 'function') {
         window.switchPortalTab('lessons');
       }
@@ -5244,6 +5464,71 @@
       }
     }
     window.openLessonPlanForModule = openLessonPlanForModule;
+    window.isModuleAllowedByAccess = isModuleAllowedByAccess;
+
+    window.applyAccessRestrictionsToDOM = function (snapshot) {
+      const isExportOnly = Boolean(snapshot && snapshot.isExpiredExportOnly && !snapshot.isInstructor);
+      const lessonsTabBtn = document.getElementById('portalTabBtnLessons');
+      if (lessonsTabBtn) {
+        lessonsTabBtn.disabled = isExportOnly;
+        lessonsTabBtn.classList.toggle('opacity-45', isExportOnly);
+        lessonsTabBtn.classList.toggle('cursor-not-allowed', isExportOnly);
+      }
+
+      const cards = document.querySelectorAll('#portalActivitiesContainer [data-module-id]');
+      let unlockedCount = 0;
+      cards.forEach((card) => {
+        const modId = card.getAttribute('data-module-id');
+        const isAssigned = snapshot.isInstructor || (Array.isArray(snapshot.allowedModules) && snapshot.allowedModules.includes(modId));
+        const unlocked = snapshot.isInstructor || (snapshot.hasAccess && isAssigned);
+        if (unlocked) unlockedCount++;
+
+        const stdActions = card.querySelector('.da-card-standard-actions');
+        if (stdActions) {
+          stdActions.classList.toggle('hidden', isExportOnly);
+          stdActions.querySelectorAll('button').forEach((btn) => {
+            btn.disabled = !unlocked;
+            btn.classList.toggle('pointer-events-none', !unlocked);
+            btn.classList.toggle('cursor-not-allowed', !unlocked);
+          });
+        }
+
+        if (isExportOnly) {
+          const attempted = getModuleAttemptedCount(modId);
+          const shouldGrey = !isAssigned || attempted === 0;
+          card.classList.toggle('opacity-55', shouldGrey);
+          card.classList.toggle('grayscale', shouldGrey);
+          card.classList.remove('grayscale-[35%]');
+        } else {
+          card.classList.remove('grayscale');
+          card.classList.toggle('opacity-55', !unlocked);
+          card.classList.toggle('grayscale-[35%]', !unlocked);
+        }
+
+        let lockOverlay = card.querySelector('.da-card-lock-banner');
+        if (!unlocked && !isExportOnly) {
+          if (!lockOverlay) {
+            lockOverlay = document.createElement('div');
+            lockOverlay.className = 'da-card-lock-banner px-4 py-2 bg-slate-900/90 border-t border-slate-700/80 text-[11px] font-semibold text-slate-300 flex items-center justify-between gap-2';
+            lockOverlay.innerHTML = '<span>Locked by your current class access code</span><i class="ph ph-lock-simple text-sm text-slate-400"></i>';
+            card.appendChild(lockOverlay);
+          }
+        } else if (lockOverlay) {
+          lockOverlay.remove();
+        }
+      });
+
+      const statusEl = document.getElementById('homeLabStatusText');
+      if (statusEl) {
+        if (isExportOnly) {
+          statusEl.textContent = 'Export-Only Mode';
+        } else if (snapshot.hasAccess) {
+          statusEl.textContent = snapshot.isInstructor
+            ? '4 Active Activities'
+            : `${unlockedCount} Unlocked ${unlockedCount === 1 ? 'Module' : 'Modules'}`;
+        }
+      }
+    };
   </script>
   <script>
     function triggerStartExcelLab() {
@@ -5589,6 +5874,8 @@
     let activeStep = 1;
     let completedSteps = new Set();
     let wrongSteps = new Set();
+    let submittedSqlWorldQueries = {};
+    let sqlWorldCompletedAt = null;
     let step1ChecklistState = [false, false, false, false];
     let currentDataTab = 'Results';
     let currentViewMode = 'table';
@@ -5598,44 +5885,89 @@
     let autoRunDebounceTimer = null;
     let labStarted = false;
 
-    function persistSqlLabState() {
+    function persistSqlLabState(isSubmit = false) {
       try {
-        localStorage.setItem('sqlLab_completedSteps', JSON.stringify([...completedSteps]));
-        localStorage.setItem('sqlLab_wrongSteps', JSON.stringify([...wrongSteps]));
-        localStorage.setItem('sqlLab_activeStep', String(activeStep));
+        const store = window.__DA101_STORAGE__;
+        if (!store || !store.getUid()) return;
+        const now = Date.now();
+        if (typeof EXERCISES !== 'undefined' && completedSteps.size >= EXERCISES.length && EXERCISES.length > 0) {
+          if (!sqlWorldCompletedAt) sqlWorldCompletedAt = now;
+        } else {
+          sqlWorldCompletedAt = null;
+        }
+        store.setItem('sqlLab_completedSteps', JSON.stringify([...completedSteps]));
+        store.setItem('sqlLab_wrongSteps', JSON.stringify([...wrongSteps]));
+        store.setItem('sqlLab_activeStep', String(activeStep));
+        store.setItem('sqlLab_submittedQueries', JSON.stringify(submittedSqlWorldQueries));
+        store.setItem('sqlLab_meta', JSON.stringify({ updatedAt: now, completedAt: sqlWorldCompletedAt }));
+        if (isSubmit) {
+          store.notifySubmit('sql_world');
+        }
       } catch (e) {}
     }
 
     function loadSqlLabState() {
+      completedSteps = new Set();
+      wrongSteps = new Set();
+      submittedSqlWorldQueries = {};
+      sqlWorldCompletedAt = null;
+      activeStep = 1;
+      step1ChecklistState = [false, false, false, false];
       try {
-        const c = localStorage.getItem('sqlLab_completedSteps');
+        const store = window.__DA101_STORAGE__;
+        if (!store || !store.getUid()) return;
+        const c = store.getItem('sqlLab_completedSteps');
         if (c) completedSteps = new Set(JSON.parse(c));
-        const w = localStorage.getItem('sqlLab_wrongSteps');
+        const w = store.getItem('sqlLab_wrongSteps');
         if (w) wrongSteps = new Set(JSON.parse(w));
-        const s = localStorage.getItem('sqlLab_activeStep');
+        const s = store.getItem('sqlLab_activeStep');
         if (s) activeStep = parseInt(s, 10) || 1;
+        const q = store.getItem('sqlLab_submittedQueries');
+        if (q) {
+          const parsedQ = JSON.parse(q);
+          if (parsedQ && typeof parsedQ === 'object') submittedSqlWorldQueries = parsedQ;
+        }
+        const m = store.getItem('sqlLab_meta');
+        if (m) {
+          const parsedM = JSON.parse(m);
+          if (parsedM && typeof parsedM.completedAt === 'number') {
+            sqlWorldCompletedAt = parsedM.completedAt;
+          }
+        }
+        if (completedSteps.has(1)) {
+          step1ChecklistState = [true, true, true, true];
+        }
       } catch (e) {}
     }
 
+    window.reloadSqlWorldStateFromStorage = function () {
+      loadSqlLabState();
+      const input = document.getElementById('sqlInput');
+      const highlight = document.getElementById('sqlHighlight');
+      const restoredQuery = submittedSqlWorldQueries[String(activeStep)] || '';
+      if (input) input.value = restoredQuery;
+      if (highlight && typeof formatSQLSyntaxHTML === 'function') {
+        highlight.innerHTML = restoredQuery ? formatSQLSyntaxHTML(restoredQuery) + '\n' : '';
+      }
+      if (completedSteps.size === 0 && wrongSteps.size === 0) {
+        labStarted = false;
+        const overlay = document.getElementById('startLabOverlay');
+        if (overlay) {
+          overlay.classList.remove('hidden', 'opacity-0', 'pointer-events-none');
+        }
+        const btnExercises = document.getElementById('tabBtnExercises');
+        if (btnExercises) btnExercises.classList.add('hidden');
+        clearResultsView();
+      }
+      updateLineNumbers();
+      renderAccordion();
+      updateProgressIndicators();
+      updateHomeScreenProgress();
+      updateEditorSubmitButtonState();
+    };
+
     window.addEventListener('DOMContentLoaded', () => {
       loadSqlLabState();
-      // Restore saved student credentials from localStorage
-      try {
-        const savedFirst = localStorage.getItem('studentFirstName');
-        const savedLast = localStorage.getItem('studentLastName');
-        const savedBatch = localStorage.getItem('studentBatch');
-        if (savedFirst && document.getElementById('homeStudentFirstName')) {
-          document.getElementById('homeStudentFirstName').value = savedFirst;
-        }
-        if (savedLast && document.getElementById('homeStudentLastName')) {
-          document.getElementById('homeStudentLastName').value = savedLast;
-        }
-        if (savedBatch && document.getElementById('homeStudentBatch')) {
-          document.getElementById('homeStudentBatch').value = savedBatch;
-        }
-      } catch (e) {
-        console.warn("Storage access restricted:", e);
-      }
 
       renderAccordion();
       switchNavTab('intro');
@@ -5726,9 +6058,12 @@
         requestAnimationFrame(() => {
           home.classList.add('m3-page-enter-active');
           home.classList.remove('m3-page-enter-prep');
+          if (typeof window.triggerHomeCardsStagger === 'function') {
+            window.triggerHomeCardsStagger();
+          }
           setTimeout(() => {
             home.classList.remove('m3-page-enter-active');
-          }, 320);
+          }, 260);
         });
         updateHomeScreenProgress();
         if (window.updateExcelHomeScreenCardProgress) {
@@ -5740,7 +6075,7 @@
         if (window.updateMoviesHomeScreenCardProgress) {
           window.updateMoviesHomeScreenCardProgress();
         }
-      }, 140);
+      }, 110);
     }
 
     // Global keyboard listener allowing user to press the 'Home' key at any time to return to activities
@@ -5764,6 +6099,24 @@
     window.toggleStepHint = toggleStepHint;
 
     function openActivity(activityId) {
+      const activityToModuleMap = {
+        transforming_data_with_excel: 'excel',
+        excel_transforming_data: 'excel',
+        sql_around_the_world: 'sql_world',
+        ordering_and_limiting: 'sql_ordering',
+        sql_ordering_limiting: 'sql_ordering',
+        successful_movies: 'sql_movies',
+        sql_successful_movies: 'sql_movies',
+        movies_activity: 'sql_movies'
+      };
+      const targetModId = activityToModuleMap[activityId];
+      if (targetModId && typeof window.isModuleAllowedByAccess === 'function' && !window.isModuleAllowedByAccess(targetModId)) {
+        if (typeof showNotification === 'function') {
+          showNotification('This module is not enabled for your current class access code.');
+        }
+        return;
+      }
+
       const home = document.getElementById('homeScreenView');
       const sqlLab = document.getElementById('labAppView');
       const excelLab = document.getElementById('excelLabAppView');
@@ -5787,13 +6140,13 @@
               excelLab.classList.remove('m3-page-enter-prep');
               setTimeout(() => {
                 excelLab.classList.remove('m3-page-enter-active');
-              }, 320);
+              }, 260);
             });
           }
           if (typeof window.initExcelLab === 'function') {
             window.initExcelLab();
           }
-        }, 140);
+        }, 110);
       } else if (activityId === 'sql_around_the_world') {
         home.classList.add('m3-page-exit');
         setTimeout(() => {
@@ -5810,14 +6163,14 @@
               sqlLab.classList.remove('m3-page-enter-prep');
               setTimeout(() => {
                 sqlLab.classList.remove('m3-page-enter-active');
-              }, 320);
+              }, 260);
             });
           }
           if (!labStarted) {
             switchNavTab('intro');
           }
           if (typeof initAllSqlEditors === 'function') initAllSqlEditors();
-        }, 140);
+        }, 110);
       } else if (activityId === 'ordering_and_limiting' || activityId === 'sql_ordering_limiting') {
         home.classList.add('m3-page-exit');
         setTimeout(() => {
@@ -5834,14 +6187,14 @@
               orderingLab.classList.remove('m3-page-enter-prep');
               setTimeout(() => {
                 orderingLab.classList.remove('m3-page-enter-active');
-              }, 320);
+              }, 260);
             });
           }
           if (typeof window.initOrderingLab === 'function') {
             window.initOrderingLab();
           }
           if (typeof initAllSqlEditors === 'function') initAllSqlEditors();
-        }, 140);
+        }, 110);
       } else if (activityId === 'successful_movies' || activityId === 'sql_successful_movies' || activityId === 'movies_activity') {
         home.classList.add('m3-page-exit');
         setTimeout(() => {
@@ -5858,14 +6211,14 @@
               moviesLab.classList.remove('m3-page-enter-prep');
               setTimeout(() => {
                 moviesLab.classList.remove('m3-page-enter-active');
-              }, 320);
+              }, 260);
             });
           }
           if (typeof window.initMoviesLab === 'function') {
             window.initMoviesLab();
           }
           if (typeof initAllSqlEditors === 'function') initAllSqlEditors();
-        }, 140);
+        }, 110);
       } else {
         openCurriculumModal(activityId);
       }
@@ -6083,12 +6436,12 @@
 
     // Material 3 Dynamic Ink Ripple Pointer Listener
     document.addEventListener('pointerdown', (e) => {
-      // Never trigger bright ripple wave on form inputs, labels, Student Info card, or elements marked .no-ripple
-      if (e.target && e.target.closest('input, textarea, select, label, [contenteditable="true"], .no-ripple, #studentInfoCard, .da-theme-toggle-btn')) {
+      // Never trigger bright ripple wave on form inputs, labels, or elements marked .no-ripple
+      if (e.target && e.target.closest('input, textarea, select, label, [contenteditable="true"], .no-ripple, .da-theme-toggle-btn')) {
         return;
       }
       const target = e.target.closest('.m3-btn, .m3-card-expressive, button, .m3-hover-react');
-      if (!target || target.disabled || target.classList.contains('cursor-not-allowed') || target.classList.contains('no-ripple') || target.closest('.no-ripple, #studentInfoCard')) return;
+      if (!target || target.disabled || target.classList.contains('cursor-not-allowed') || target.classList.contains('no-ripple') || target.closest('.no-ripple')) return;
       
       const rect = target.getBoundingClientRect();
       const size = Math.max(rect.width, rect.height) * 1.6;
@@ -7114,6 +7467,17 @@
       renderAccordion();
       updateEditorSubmitButtonState();
 
+      const savedQuery = submittedSqlWorldQueries[String(id)];
+      if (typeof savedQuery === 'string' && savedQuery.trim()) {
+        const input = document.getElementById('sqlInput');
+        const highlight = document.getElementById('sqlHighlight');
+        if (input) input.value = savedQuery;
+        if (highlight && typeof formatSQLSyntaxHTML === 'function') {
+          highlight.innerHTML = formatSQLSyntaxHTML(savedQuery) + '\n';
+        }
+        updateLineNumbers();
+      }
+
       if (id === 9 || id === 10) {
         lastQueriedTable = 'countries';
         const currentEx = EXERCISES.find(e => e.id === id);
@@ -7147,10 +7511,10 @@
       }
     }
 
-    function markStepDone(stepId) {
+    function markStepDone(stepId, isSubmit = false) {
       completedSteps.add(stepId);
       wrongSteps.delete(stepId);
-      persistSqlLabState();
+      persistSqlLabState(isSubmit);
       updateProgressIndicators();
       renderAccordion();
       updateEditorSubmitButtonState();
@@ -7469,7 +7833,9 @@
           badge.textContent = 'Invalid';
         }
         if (!silent) {
-          showNotification(res.error || "Query is invalid.");
+          window.dispatchEvent(new CustomEvent('da101sqlerror', {
+            detail: { error: res.error || 'Query is invalid.', query, moduleLabel: 'Module 2 · World SQL' }
+          }));
         }
       }
     }
@@ -7483,13 +7849,13 @@
       if (currentEx.type === 'checklist') {
         if (step1ChecklistState.every(Boolean)) {
           if (wrongBox) wrongBox.classList.add('hidden');
-          markStepDone(1);
+          markStepDone(1, true);
           showNotification("Checklist verified! Proceeding to Exercise 2.");
           setTimeout(() => loadStep(2), 600);
         } else {
           wrongSteps.add(1);
           completedSteps.delete(1);
-          persistSqlLabState();
+          persistSqlLabState(true);
           updateProgressIndicators();
           renderAccordion();
           updateEditorSubmitButtonState();
@@ -7501,7 +7867,7 @@
       if (currentEx.type === 'action') {
         if (currentEx.checkQuery()) {
           if (wrongBox) wrongBox.classList.add('hidden');
-          markStepDone(activeStep);
+          markStepDone(activeStep, true);
           showNotification("Great! You switched to picture view.");
           setTimeout(() => {
             if ((completedSteps.size + wrongSteps.size) >= EXERCISES.length) {
@@ -7513,7 +7879,7 @@
         } else {
           wrongSteps.add(activeStep);
           completedSteps.delete(activeStep);
-          persistSqlLabState();
+          persistSqlLabState(true);
           updateProgressIndicators();
           renderAccordion();
           updateEditorSubmitButtonState();
@@ -7524,12 +7890,30 @@
 
       const input = document.getElementById('sqlInput');
       const q = input ? input.value.trim() : '';
+      if (q) {
+        submittedSqlWorldQueries[String(activeStep)] = q;
+      }
+      const execCheck = q ? executeSQLQuery(q) : { success: false, error: 'Please type a SQL query before submitting.' };
       runSQL(true);
+
+      if (!execCheck.success) {
+        wrongSteps.add(activeStep);
+        completedSteps.delete(activeStep);
+        persistSqlLabState(true);
+        updateProgressIndicators();
+        renderAccordion();
+        updateEditorSubmitButtonState();
+        if (wrongBox) wrongBox.classList.remove('hidden');
+        window.dispatchEvent(new CustomEvent('da101sqlerror', {
+          detail: { error: execCheck.error || 'Invalid SQL query.', query: q, moduleLabel: 'Module 2 · World SQL' }
+        }));
+        return;
+      }
 
       const isValid = currentEx.checkQuery(q, lastQueryResults);
       if (isValid) {
         if (wrongBox) wrongBox.classList.add('hidden');
-        markStepDone(activeStep);
+        markStepDone(activeStep, true);
         showNotification("Correct! Great work.");
         setTimeout(() => {
           if ((completedSteps.size + wrongSteps.size) >= EXERCISES.length) {
@@ -7541,7 +7925,7 @@
       } else {
         wrongSteps.add(activeStep);
         completedSteps.delete(activeStep);
-        persistSqlLabState();
+        persistSqlLabState(true);
         updateProgressIndicators();
         renderAccordion();
         updateEditorSubmitButtonState();
@@ -7555,7 +7939,9 @@
         activeStep = 1;
         completedSteps.clear();
         wrongSteps.clear();
-        persistSqlLabState();
+        submittedSqlWorldQueries = {};
+        sqlWorldCompletedAt = null;
+        persistSqlLabState(true);
         step1ChecklistState = [false, false, false, false];
         labStarted = false;
         const input = document.getElementById('sqlInput');
@@ -7660,55 +8046,48 @@
     }
 
     function getStudentInfo() {
+      const access = window.__DA101_ACCESS__;
       let firstName = '';
+      let middleName = '';
       let lastName = '';
       let batchInput = '';
+      let fullName = '';
 
-      const homeFirstEl = document.getElementById('homeStudentFirstName');
-      const homeLastEl = document.getElementById('homeStudentLastName');
-      const homeBatchEl = document.getElementById('homeStudentBatch');
+      if (access && access.profileLocked) {
+        firstName = String(access.firstName || '').trim();
+        middleName = String(access.middleName || '').trim();
+        lastName = String(access.lastName || '').trim();
+        batchInput = String(access.batchNumber || '').trim();
+        fullName = String(access.fullName || '').trim();
+      } else {
+        try {
+          firstName = (localStorage.getItem('studentFirstName') || '').trim();
+          middleName = (localStorage.getItem('studentMiddleName') || '').trim();
+          lastName = (localStorage.getItem('studentLastName') || '').trim();
+          batchInput = (localStorage.getItem('studentBatch') || '').trim();
+        } catch (e) {}
 
-      if (homeFirstEl) firstName = homeFirstEl.value.trim();
-      if (homeLastEl) lastName = homeLastEl.value.trim();
-      if (homeBatchEl) batchInput = homeBatchEl.value.trim();
+        if (access) {
+          if (!firstName && access.firstName) firstName = String(access.firstName).trim();
+          if (!batchInput && access.batchNumber) batchInput = String(access.batchNumber).trim();
+          if (!fullName && access.fullName) fullName = String(access.fullName).trim();
+        }
+      }
 
-      try {
-        if (!firstName) firstName = (localStorage.getItem('studentFirstName') || '').trim();
-        if (!lastName) lastName = (localStorage.getItem('studentLastName') || '').trim();
-        if (!batchInput) batchInput = (localStorage.getItem('studentBatch') || '').trim();
-      } catch (e) {}
-
-      const name = [firstName, lastName].filter(Boolean).join(' ') || 'Student';
-      const batch = batchInput ? `Batch ${batchInput}` : 'N/A';
+      const name = fullName || [firstName, middleName, lastName].filter(Boolean).join(' ') || 'Student';
+      const batch = batchInput ? `Batch ${batchInput}` : (access && access.isInstructor ? 'Instructor' : 'N/A');
 
       const now = new Date();
-      const homeDateEl = document.getElementById('homeStudentDateText');
-      const homeTimeEl = document.getElementById('homeStudentTimeText');
-      const date = (homeDateEl ? homeDateEl.textContent.trim() : '') || now.toISOString().split('T')[0];
-      const time = (homeTimeEl ? homeTimeEl.textContent.trim() : '') || now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const date = now.toISOString().split('T')[0];
+      const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      return { firstName, lastName, name, batchInput, batch, date, time };
+      return { firstName, middleName, lastName, name, batchInput, batch, date, time };
     }
 
     window.getStudentInfo = getStudentInfo;
 
     function handleStudentInfoChange() {
-      const firstEl = document.getElementById('homeStudentFirstName');
-      const lastEl = document.getElementById('homeStudentLastName');
-      const batchEl = document.getElementById('homeStudentBatch');
-
-      const fName = firstEl ? firstEl.value : '';
-      const lName = lastEl ? lastEl.value : '';
-      const bVal = batchEl ? batchEl.value : '';
-
-      try {
-        localStorage.setItem('studentFirstName', fName);
-        localStorage.setItem('studentLastName', lName);
-        localStorage.setItem('studentBatch', bVal);
-      } catch (e) {}
-
       updateDateAndTimeBadges();
-
       if (typeof window.updateExcelCompletionCard === 'function') {
         window.updateExcelCompletionCard();
       }
@@ -7717,15 +8096,12 @@
       }
     }
 
+    window.handleStudentInfoChange = handleStudentInfoChange;
+
     function updateDateAndTimeBadges() {
       const now = new Date();
       const dateStr = now.toISOString().split('T')[0];
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      const homeDateEl = document.getElementById('homeStudentDateText');
-      const homeTimeEl = document.getElementById('homeStudentTimeText');
-      if (homeDateEl) homeDateEl.textContent = dateStr;
-      if (homeTimeEl) homeTimeEl.textContent = timeStr;
 
       const compDateEl = document.getElementById('completionStudentDate');
       const compTimeEl = document.getElementById('completionStudentTime');
@@ -7738,6 +8114,8 @@
       if (compNameEl) compNameEl.textContent = info.name;
       if (compBatchEl) compBatchEl.textContent = info.batch;
     }
+
+    window.updateDateAndTimeBadges = updateDateAndTimeBadges;
 
     function buildA4ReportElement(name, batch, date, time) {
       const container = document.createElement('div');
@@ -7753,22 +8131,26 @@
       container.style.justifyContent = 'space-between';
 
       // Build 2-column table rows for exercises (html2canvas bulletproof layout)
+      const isComplete = (completedSteps.size + wrongSteps.size) >= EXERCISES.length;
       let tableRowsHtml = '';
       for (let i = 0; i < EXERCISES.length; i += 2) {
         const ex1 = EXERCISES[i];
         const isDone1 = ex1 ? completedSteps.has(ex1.id) : false;
+        const isWrong1 = ex1 ? wrongSteps.has(ex1.id) : false;
         const badge1 = isDone1 
           ? `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✓ PASSED</span>`
-          : `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✕ INCORRECT</span>`;
+          : (isWrong1
+            ? `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✕ INCORRECT</span>`
+            : `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 9999px; display: inline-block;">— UNANSWERED</span>`);
 
         const cell1Html = ex1 ? `
           <td style="width: 50%; vertical-align: middle; padding: 3px 5px;">
-            <div style="background: #ffffff; border: 1px solid ${isDone1 ? '#e2e8f0' : '#fecdd3'}; border-radius: 6px; padding: 6px 10px; display: table; width: 100%; box-sizing: border-box;">
+            <div style="background: #ffffff; border: 1px solid ${isDone1 ? '#e2e8f0' : (isWrong1 ? '#fecdd3' : '#e2e8f0')}; border-radius: 6px; padding: 6px 10px; display: table; width: 100%; box-sizing: border-box;">
               <div style="display: table-cell; vertical-align: middle; font-size: 10px; font-weight: 700; color: #0f172a; font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.02em;">
                 <span style="color: #0284c7; font-weight: 800; margin-right: 6px;">#${String(i + 1).padStart(2, '0')}</span>
                 <span>${escapeHtml(ex1.title)}</span>
               </div>
-              <div style="display: table-cell; vertical-align: middle; text-align: right; width: 75px;">
+              <div style="display: table-cell; vertical-align: middle; text-align: right; width: 90px;">
                 ${badge1}
               </div>
             </div>
@@ -7777,18 +8159,21 @@
 
         const ex2 = EXERCISES[i + 1];
         const isDone2 = ex2 ? completedSteps.has(ex2.id) : false;
+        const isWrong2 = ex2 ? wrongSteps.has(ex2.id) : false;
         const badge2 = isDone2 
           ? `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✓ PASSED</span>`
-          : `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✕ INCORRECT</span>`;
+          : (isWrong2
+            ? `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; display: inline-block;">✕ INCORRECT</span>`
+            : `<span style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 9999px; display: inline-block;">— UNANSWERED</span>`);
 
         const cell2Html = ex2 ? `
           <td style="width: 50%; vertical-align: middle; padding: 3px 5px;">
-            <div style="background: #ffffff; border: 1px solid ${isDone2 ? '#e2e8f0' : '#fecdd3'}; border-radius: 6px; padding: 6px 10px; display: table; width: 100%; box-sizing: border-box;">
+            <div style="background: #ffffff; border: 1px solid ${isDone2 ? '#e2e8f0' : (isWrong2 ? '#fecdd3' : '#e2e8f0')}; border-radius: 6px; padding: 6px 10px; display: table; width: 100%; box-sizing: border-box;">
               <div style="display: table-cell; vertical-align: middle; font-size: 10px; font-weight: 700; color: #0f172a; font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.02em;">
                 <span style="color: #0284c7; font-weight: 800; margin-right: 6px;">#${String(i + 2).padStart(2, '0')}</span>
                 <span>${escapeHtml(ex2.title)}</span>
               </div>
-              <div style="display: table-cell; vertical-align: middle; text-align: right; width: 75px;">
+              <div style="display: table-cell; vertical-align: middle; text-align: right; width: 90px;">
                 ${badge2}
               </div>
             </div>
@@ -7809,9 +8194,9 @@
               <h1 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.03em; margin: 0; line-height: 1.2;">Module 2: SQL Around the World</h1>
               <div style="font-size: 11px; font-weight: 500; color: #64748b; margin-top: 1px; line-height: 1.6;">Official Laboratory Verification &amp; Competency Assessment Report</div>
             </div>
-            <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
-              <div style="font-size: 9.5px; font-weight: 800; color: #166534; text-transform: uppercase;">STATUS: COMPLETED</div>
-              <div style="font-size: 11px; font-weight: 900; color: #15803d;">${completedSteps.size} / ${EXERCISES.length} Passed (${wrongSteps.size} Incorrect)</div>
+            <div style="background: ${isComplete ? '#f0fdf4' : '#fefce8'}; border: 1.5px solid ${isComplete ? '#86efac' : '#fde047'}; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
+              <div style="font-size: 9.5px; font-weight: 800; color: ${isComplete ? '#166534' : '#854d0e'}; text-transform: uppercase;">STATUS: ${isComplete ? 'COMPLETED' : 'INCOMPLETE'}</div>
+              <div style="font-size: 11px; font-weight: 900; color: ${isComplete ? '#15803d' : '#a16207'};">${completedSteps.size} / ${EXERCISES.length} Passed (${wrongSteps.size} Incorrect)</div>
             </div>
           </div>
 
@@ -7839,7 +8224,7 @@
 
           <div style="font-size: 10px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
             <span>Module 2: Verified SQL Query Results (12 Exercises)</span>
-            <span style="color: #0284c7; font-weight: 700;">All Solutions Formally Validated</span>
+            <span style="color: #0284c7; font-weight: 700;">${isComplete ? 'All Solutions Formally Validated' : 'Partial Session Export'}</span>
           </div>
 
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; table-layout: fixed;">
@@ -7855,7 +8240,7 @@
 
         <!-- Institutional Footer -->
         <div style="border-top: 2px solid #e2e8f0; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #64748b;">
-          <div>Virtual Assistant Services Level III &bull; Module 2: SQL Around the World &bull; Completed on ${escapeHtml(date)} at ${escapeHtml(time)}</div>
+          <div>Virtual Assistant Services Level III &bull; Module 2: SQL Around the World &bull; Exported on ${escapeHtml(date)} at ${escapeHtml(time)}</div>
           <div style="color: #059669; font-weight: 800;">✓ Official Verified Result</div>
         </div>
       `;
@@ -7970,6 +8355,8 @@
         }
       }
     }
+    window.saveResultAsPDF = saveResultAsPDF;
+    window.saveResultAsImage = saveResultAsImage;
 
     function renderTableData(rows) {
       const thead = document.getElementById('tableHead');

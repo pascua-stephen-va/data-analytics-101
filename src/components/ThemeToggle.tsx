@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import {
+  M3_SPRING_EXPRESSIVE_BOUNCE,
+  M3_SPRING_FAST_SPATIAL,
+} from '../utils/m3Motion';
 
 type ThemeMode = 'light' | 'dark' | 'auto';
 type EffectiveTheme = 'light' | 'dark';
@@ -41,6 +45,12 @@ function readStoredMode(): ThemeMode {
 
 function resolveTheme(mode: ThemeMode): EffectiveTheme {
   return mode === 'auto' ? getSystemTheme() : mode;
+}
+
+function getNextMode(current: ThemeMode): ThemeMode {
+  if (current === 'light') return 'dark';
+  if (current === 'dark') return 'auto';
+  return 'light';
 }
 
 function SunIcon() {
@@ -87,6 +97,17 @@ function MoonIcon() {
   );
 }
 
+function AutoGlyph() {
+  return (
+    <span
+      className="text-[13px] font-black leading-none tracking-tight select-none"
+      aria-hidden="true"
+    >
+      A
+    </span>
+  );
+}
+
 export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
   const initialMode = readStoredMode();
   const initialEffective = resolveTheme(initialMode);
@@ -94,20 +115,22 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
   const [mode, setMode] = useState<ThemeMode>(initialMode);
   const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>(initialEffective);
   const [rotation, setRotation] = useState<number>(0);
-  const prevEffectiveRef = useRef<EffectiveTheme>(initialEffective);
+  const prevModeRef = useRef<ThemeMode>(initialMode);
 
   useEffect(() => {
     const syncFromExternal = (nextMode: ThemeMode, nextEffective: EffectiveTheme) => {
       setMode(nextMode);
       setEffectiveTheme(nextEffective);
-      if (prevEffectiveRef.current !== nextEffective) {
-        prevEffectiveRef.current = nextEffective;
+      if (prevModeRef.current !== nextMode) {
+        prevModeRef.current = nextMode;
         setRotation((r) => r + 180);
       }
     };
 
     const handleThemeEvent = (e: Event) => {
-      const detail = (e as CustomEvent<{ mode?: ThemeMode; effectiveTheme?: EffectiveTheme }>).detail;
+      const detail = (
+        e as CustomEvent<{ mode?: ThemeMode; effectiveTheme?: EffectiveTheme }>
+      ).detail;
       if (detail?.effectiveTheme) {
         syncFromExternal(detail.mode ?? readStoredMode(), detail.effectiveTheme);
       } else {
@@ -116,16 +139,16 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
       }
     };
 
-    // Listen to global app theme changes (covers manual clicks across headers and OS system changes)
     window.addEventListener('appthemechange', handleThemeEvent);
 
-    // Also subscribe directly to OS color scheme changes as a safety net
-    const mql = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const mql = window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
     const handleMediaChange = () => {
       const currentMode = readStoredMode();
       if (currentMode === 'auto') {
         const sysTheme = getSystemTheme();
-        syncFromExternal('auto', sysTheme);
+        setEffectiveTheme(sysTheme);
       }
     };
 
@@ -149,57 +172,43 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
     };
   }, []);
 
-  const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
-    // Shift+Click resets to automatic OS system preference
-    if (e.shiftKey) {
-      if (typeof window.setAppThemeMode === 'function') {
-        window.setAppThemeMode('auto');
-      } else {
-        try {
-          localStorage.setItem('da101_theme_mode', 'auto');
-        } catch {
-          // Ignore storage errors
-        }
-        const sysTheme = getSystemTheme();
-        document.documentElement.classList.toggle('dark', sysTheme === 'dark');
-        document.documentElement.classList.toggle('light', sysTheme === 'light');
-        document.documentElement.setAttribute('data-theme', sysTheme);
-        setMode('auto');
-        setEffectiveTheme(sysTheme);
-        if (prevEffectiveRef.current !== sysTheme) {
-          prevEffectiveRef.current = sysTheme;
-          setRotation((r) => r + 180);
-        }
-      }
-      return;
-    }
+  const handleClick = () => {
+    const nextMode = getNextMode(mode);
+    const nextEffective = resolveTheme(nextMode);
 
-    const nextTheme: EffectiveTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
     if (typeof window.setAppThemeMode === 'function') {
-      window.setAppThemeMode(nextTheme);
+      window.setAppThemeMode(nextMode);
     } else {
       try {
-        localStorage.setItem('da101_theme_mode', nextTheme);
-        localStorage.setItem('da101_theme', nextTheme);
+        localStorage.setItem('da101_theme_mode', nextMode);
+        if (nextMode !== 'auto') {
+          localStorage.setItem('da101_theme', nextMode);
+        }
       } catch {
         // Ignore storage errors
       }
-      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
-      document.documentElement.classList.toggle('light', nextTheme === 'light');
-      document.documentElement.setAttribute('data-theme', nextTheme);
-      setMode(nextTheme);
-      setEffectiveTheme(nextTheme);
-      if (prevEffectiveRef.current !== nextTheme) {
-        prevEffectiveRef.current = nextTheme;
+      document.documentElement.classList.toggle('dark', nextEffective === 'dark');
+      document.documentElement.classList.toggle('light', nextEffective === 'light');
+      document.documentElement.setAttribute('data-theme', nextEffective);
+      setMode(nextMode);
+      setEffectiveTheme(nextEffective);
+      if (prevModeRef.current !== nextMode) {
+        prevModeRef.current = nextMode;
         setRotation((r) => r + 180);
       }
     }
   };
 
-  const isDark = effectiveTheme === 'dark';
-  const modeSuffix = mode === 'auto' ? ' (System)' : '';
-  const nextLabel = isDark ? 'Light' : 'Dark';
-  const titleText = `${isDark ? 'Dark' : 'Light'} mode${modeSuffix} — Click to switch to ${nextLabel} (Shift+Click for System)`;
+  const nextMode = getNextMode(mode);
+  const currentLabel =
+    mode === 'auto'
+      ? `Auto (${effectiveTheme === 'dark' ? 'Dark' : 'Light'})`
+      : mode === 'dark'
+        ? 'Dark'
+        : 'Light';
+  const nextLabel =
+    nextMode === 'auto' ? 'Auto (System)' : nextMode === 'dark' ? 'Dark' : 'Light';
+  const titleText = `Theme: ${currentLabel} — Click for ${nextLabel}`;
 
   const variantClass =
     variant === 'excel'
@@ -212,12 +221,11 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
     <motion.button
       type="button"
       onClick={handleClick}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.92 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 24 }}
-      className={`da-theme-toggle-btn no-ripple ${variantClass}`}
-      aria-label={`Switch to ${nextLabel.toLowerCase()} mode`}
-      aria-pressed={isDark}
+      whileHover={{ scale: 1.08 }}
+      whileTap={{ scale: 0.9 }}
+      transition={M3_SPRING_FAST_SPATIAL}
+      className={`da-theme-toggle-btn da-theme-toggle-circle no-ripple ${variantClass}`}
+      aria-label={`Current theme ${currentLabel}. Switch to ${nextLabel}`}
       title={titleText}
       data-theme-mode={mode}
       data-effective-theme={effectiveTheme}
@@ -225,17 +233,28 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
       <motion.span
         className="da-theme-toggle-icon"
         animate={{ rotate: rotation }}
-        transition={{ type: 'spring', stiffness: 240, damping: 18 }}
+        transition={M3_SPRING_EXPRESSIVE_BOUNCE}
       >
         <AnimatePresence mode="wait" initial={false}>
-          {isDark ? (
+          {mode === 'auto' ? (
+            <motion.span
+              key="auto"
+              className="da-theme-icon-inner da-theme-icon-auto"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={M3_SPRING_FAST_SPATIAL}
+            >
+              <AutoGlyph />
+            </motion.span>
+          ) : mode === 'dark' ? (
             <motion.span
               key="moon"
               className="da-theme-icon-inner da-theme-icon-moon"
-              initial={{ opacity: 0, scale: 0.6 }}
+              initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.6 }}
-              transition={{ duration: 0.16, ease: 'easeOut' }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={M3_SPRING_FAST_SPATIAL}
             >
               <MoonIcon />
             </motion.span>
@@ -243,22 +262,16 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
             <motion.span
               key="sun"
               className="da-theme-icon-inner da-theme-icon-sun"
-              initial={{ opacity: 0, scale: 0.6 }}
+              initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.6 }}
-              transition={{ duration: 0.16, ease: 'easeOut' }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={M3_SPRING_FAST_SPATIAL}
             >
               <SunIcon />
             </motion.span>
           )}
         </AnimatePresence>
       </motion.span>
-      <span className="da-theme-toggle-label">
-        {isDark ? 'Dark' : 'Light'}
-      </span>
-      {mode === 'auto' && (
-        <span className="da-theme-auto-dot" title="Following system preference" />
-      )}
     </motion.button>
   );
 }

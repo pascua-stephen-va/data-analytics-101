@@ -656,6 +656,14 @@
 
   window.selectCurriculumModule = function (moduleId) {
     if (!LESSON_CURRICULUM[moduleId]) moduleId = 'excel';
+    if (typeof window.isModuleAllowedByAccess === 'function' && !window.isModuleAllowedByAccess(moduleId)) {
+      const access = window.__DA101_ACCESS__;
+      if (access && Array.isArray(access.allowedModules) && access.allowedModules.length > 0) {
+        moduleId = access.allowedModules[0];
+      } else {
+        return;
+      }
+    }
     currentModuleId = moduleId;
     renderCurriculumModuleNav();
     renderCurriculumModuleContent();
@@ -1702,6 +1710,9 @@
   // -----------------------------------------------------------------------
   window.openLessonPlanModal = function (moduleId) {
     if (!moduleId) moduleId = currentModuleId || 'excel';
+    if (typeof window.isModuleAllowedByAccess === 'function' && !window.isModuleAllowedByAccess(moduleId)) {
+      return;
+    }
     const modal = document.getElementById('inLabLessonPlanModal');
     const modalBody = document.getElementById('inLabLessonPlanModalBody');
     const modalTitle = document.getElementById('inLabLessonPlanModalTitle');

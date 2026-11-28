@@ -1,0 +1,196 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower().matches('.*@gmail\\.com$');
+    }
+
+    function isInstructor() {
+      return isSignedIn()
+        && request.auth.token.email.lower() == 'pascua.stephen.va@gmail.com';
+    }
+
+    function isValidModuleList(modules) {
+      return modules is list
+        && modules.size() >= 1
+        && modules.size() <= 4
+        && modules.hasOnly(['excel', 'sql_world', 'sql_ordering', 'sql_movies']);
+    }
+
+    function isValidClassCodePayload(data) {
+      return data.keys().hasAll(['code', 'batchNumber', 'allowedModules', 'startsAt', 'expiresAt', 'active'])
+        && data.code is string
+        && data.code.size() >= 3
+        && data.code.size() <= 32
+        && data.batchNumber is string
+        && data.batchNumber.size() >= 1
+        && data.batchNumber.size() <= 16
+        && isValidModuleList(data.allowedModules)
+        && data.startsAt is timestamp
+        && data.expiresAt is timestamp
+        && data.expiresAt > data.startsAt
+        && data.active is bool;
+    }
+
+    function codeDoc(code) {
+      return get(/databases/$(database)/documents/class_codes/$(code));
+    }
+
+    function isActiveValidCode(code) {
+      return code is string
+        && exists(/databases/$(database)/documents/class_codes/$(code))
+        && codeDoc(code).data.active == true
+        && request.time >= codeDoc(code).data.startsAt
+        && request.time <= codeDoc(code).data.expiresAt;
+    }
+
+    function isWithinEnrollmentExpiry(enrData) {
+      return (enrData.expiresAt is timestamp && request.time <= enrData.expiresAt)
+        || (enrData.get('customExpiresAt', null) is timestamp && request.time <= enrData.customExpiresAt);
+    }
+
+    function isEnrollmentWritableByStudent(uid) {
+      return exists(/databases/$(database)/documents/enrollments/$(uid))
+        && get(/databases/$(database)/documents/enrollments/$(uid)).data.get('blocked', false) != true
+        && get(/databases/$(database)/documents/enrollments/$(uid)).data.get('revoked', false) != true
+        && get(/databases/$(database)/documents/enrollments/$(uid)).data.get('profileLocked', false) == true
+        && isWithinEnrollmentExpiry(get(/databases/$(database)/documents/enrollments/$(uid)).data);
+    }
+
+    function lockedProfileUnchanged() {
+      return resource.data.get('profileLocked', false) != true
+        || (
+          request.resource.data.get('profileLocked', false) == true
+          && request.resource.data.get('firstName', '') == resource.data.get('firstName', '')
+          && request.resource.data.get('middleName', '') == resource.data.get('middleName', '')
+          && request.resource.data.get('noMiddleName', false) == resource.data.get('noMiddleName', false)
+          && request.resource.data.get('lastName', '') == resource.data.get('lastName', '')
+          && request.resource.data.get('fullName', '') == resource.data.get('fullName', '')
+          && request.resource.data.get('identityKey', '') == resource.data.get('identityKey', '')
+        );
+    }
+
+    function instructorFieldsProtected() {
+      return request.resource.data.get('customExpiresAt', null) == resource.data.get('customExpiresAt', null)
+        && request.resource.data.get('revoked', false) == resource.data.get('revoked', false)
+        && (
+          resource.data.get('blocked', false) != true
+          || request.resource.data.get('blocked', false) == true
+        );
+    }
+
+    // Class Access Codes (server-time enforced via request.time)
+    match /class_codes/{code} {
+      allow list, delete: if isInstructor();
+      allow create, update: if isInstructor()
+        && code == request.resource.data.code
+        && isValidClassCodePayload(request.resource.data);
+
+      // Students can only look up a single exact code that is active and within its valid window
+      allow get: if isInstructor()
+        || (
+          isSignedIn()
+          && resource.data.active == true
+          && request.time >= resource.data.startsAt
+          && request.time <= resource.data.expiresAt
+        );
+    }
+
+    // Unique Student Identity Registry (prevents duplicate account registrations per batch)
+    match /student_identities/{identityKey} {
+      allow get: if isSignedIn();
+      allow create: if isSignedIn()
+        && !exists(/databases/$(database)/documents/student_identities/$(identityKey))
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.identityKey == identityKey
+        && request.resource.data.fullName is string
+        && request.resource.data.batchNumber is string;
+      allow list, update, delete: if isInstructor();
+    }
+
+    // Student Enrollments (bound to a valid, active, non-expired class code + locked identity)
+    match /enrollments/{uid} {
+      allow read: if isInstructor() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isInstructor();
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.get('blocked', false) == false
+        && request.resource.data.get('revoked', false) == false
+        && request.resource.data.get('flaggedDuplicate', false) == false
+        && !('customExpiresAt' in request.resource.data)
+        && isActiveValidCode(request.resource.data.code)
+        && request.resource.data.batchNumber == codeDoc(request.resource.data.code).data.batchNumber
+        && request.resource.data.allowedModules == codeDoc(request.resource.data.code).data.allowedModules
+        && request.resource.data.expiresAt == codeDoc(request.resource.data.code).data.expiresAt;
+
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && instructorFieldsProtected()
+        && lockedProfileUnchanged()
+        && (
+          // Path A: Initial profile registration / duplicate self-flagging, OR active non-expired score sync
+          (
+            request.resource.data.code == resource.data.code
+            && request.resource.data.batchNumber == resource.data.batchNumber
+            && request.resource.data.allowedModules == resource.data.allowedModules
+            && request.resource.data.expiresAt == resource.data.expiresAt
+            && (
+              resource.data.get('profileLocked', false) != true
+              || (
+                resource.data.get('blocked', false) != true
+                && resource.data.get('revoked', false) != true
+                && isWithinEnrollmentExpiry(resource.data)
+              )
+            )
+          )
+          // Path B: Redeeming a new active valid class code (not allowed if blocked or revoked)
+          || (
+            resource.data.get('blocked', false) != true
+            && resource.data.get('revoked', false) != true
+            && isActiveValidCode(request.resource.data.code)
+            && request.resource.data.batchNumber == codeDoc(request.resource.data.code).data.batchNumber
+            && request.resource.data.allowedModules == codeDoc(request.resource.data.code).data.allowedModules
+            && request.resource.data.expiresAt == codeDoc(request.resource.data.code).data.expiresAt
+          )
+        );
+    }
+
+    // Per-Account Cloud Progress Sync (students read anytime for Export-Only Mode; writes require active non-expired enrollment)
+    match /student_progress/{uid} {
+      allow read: if isInstructor() || (isSignedIn() && request.auth.uid == uid);
+      allow delete: if isInstructor();
+
+      allow create: if isInstructor()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && isEnrollmentWritableByStudent(uid)
+          && request.resource.data.get('resetVersion', 0) == 0
+          && request.resource.data.get('moduleResetTimestamps', {}) == {}
+        );
+
+      allow update: if isInstructor()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && isEnrollmentWritableByStudent(uid)
+          && request.resource.data.get('resetVersion', 0) == resource.data.get('resetVersion', 0)
+          && request.resource.data.get('moduleResetTimestamps', {}) == resource.data.get('moduleResetTimestamps', {})
+        );
+    }
+
+    // Deny all other collections by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

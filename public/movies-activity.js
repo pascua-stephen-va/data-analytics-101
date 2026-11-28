@@ -372,12 +372,31 @@
     lastQueryResults: null,
     isLabStarted: false,
     autoRun: false,
-    exerciseFeedbacks: {}
+    exerciseFeedbacks: {},
+    submittedQueries: {},
+    updatedAt: 0,
+    completedAt: null
   };
 
+  function resetMoviesStateInMemory() {
+    moviesState.completedSteps = new Set();
+    moviesState.wrongSteps = new Set();
+    moviesState.activeStep = 1;
+    moviesState.activeTab = 'intro';
+    moviesState.currentQuery = '';
+    moviesState.lastQueryResults = null;
+    moviesState.isLabStarted = false;
+    moviesState.exerciseFeedbacks = {};
+    moviesState.submittedQueries = {};
+    moviesState.updatedAt = 0;
+    moviesState.completedAt = null;
+  }
+
   function loadSavedState() {
+    resetMoviesStateInMemory();
     try {
-      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('seatwork_04_movies_state_v1');
+      const store = window.__DA101_STORAGE__;
+      const saved = store ? store.getItem(STORAGE_KEY) : null;
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.activeStep) moviesState.activeStep = parsed.activeStep;
@@ -389,22 +408,48 @@
           moviesState.wrongSteps = new Set(parsed.wrongSteps);
         }
         if (parsed.isLabStarted) moviesState.isLabStarted = parsed.isLabStarted;
+        if (parsed.submittedQueries && typeof parsed.submittedQueries === 'object') {
+          moviesState.submittedQueries = parsed.submittedQueries;
+        }
+        if (typeof parsed.updatedAt === 'number') {
+          moviesState.updatedAt = parsed.updatedAt;
+        }
+        if (typeof parsed.completedAt === 'number') {
+          moviesState.completedAt = parsed.completedAt;
+        }
       }
     } catch (e) {
       console.warn("Could not load Asynchronous 01 state:", e);
     }
   }
 
-  function persistState() {
+  function persistState(isSubmit = false) {
     try {
+      const store = window.__DA101_STORAGE__;
+      if (!store || !store.getUid()) return;
+      const now = Date.now();
+      const allDone = moviesState.completedSteps.size >= MOVIES_EXERCISES.length && MOVIES_EXERCISES.length > 0;
+      if (allDone) {
+        if (!moviesState.completedAt) moviesState.completedAt = now;
+      } else {
+        moviesState.completedAt = null;
+      }
+      moviesState.updatedAt = now;
+
       const payload = {
         activeStep: moviesState.activeStep,
         activeTab: moviesState.activeTab,
         completedSteps: Array.from(moviesState.completedSteps),
         wrongSteps: Array.from(moviesState.wrongSteps),
-        isLabStarted: moviesState.isLabStarted
+        isLabStarted: moviesState.isLabStarted,
+        submittedQueries: moviesState.submittedQueries || {},
+        updatedAt: now,
+        completedAt: moviesState.completedAt
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      store.setItem(STORAGE_KEY, JSON.stringify(payload));
+      if (isSubmit) {
+        store.notifySubmit('sql_movies');
+      }
     } catch (e) {
       console.warn("Could not persist Asynchronous 01 state:", e);
     }
@@ -1285,8 +1330,13 @@
     const ex = getActiveExercise();
     if (ex.type === 'sql') {
       const input = document.getElementById('moviesSqlInput');
-      if (input && !input.value.trim()) {
-        input.value = `SELECT * FROM movies `;
+      const savedQuery = moviesState.submittedQueries && moviesState.submittedQueries[String(stepId)];
+      if (input) {
+        if (typeof savedQuery === 'string' && savedQuery.trim()) {
+          input.value = savedQuery;
+        } else if (!input.value.trim()) {
+          input.value = `SELECT * FROM movies `;
+        }
         if (typeof window.handleMoviesSQLInput === 'function') {
           window.handleMoviesSQLInput();
         }
@@ -1342,7 +1392,9 @@
     }
 
     if (!res.success && !silent) {
-      showMoviesNotification(res.error || "Query failed");
+      window.dispatchEvent(new CustomEvent('da101sqlerror', {
+        detail: { error: res.error || 'Query failed.', query, moduleLabel: 'Module 4 · Successful Movies' }
+      }));
     }
 
     return res;
@@ -1360,13 +1412,23 @@
     const res = runMoviesSQL(true);
     const input = document.getElementById('moviesSqlInput');
     const queryStr = input ? input.value.trim() : '';
+    if (queryStr) {
+      moviesState.submittedQueries = moviesState.submittedQueries || {};
+      moviesState.submittedQueries[String(currentEx.id)] = queryStr;
+    }
+
+    if (!res || !res.success) {
+      window.dispatchEvent(new CustomEvent('da101sqlerror', {
+        detail: { error: (res && res.error) ? res.error : 'Please enter a valid SQL query before submitting.', query: queryStr, moduleLabel: 'Module 4 · Successful Movies' }
+      }));
+    }
 
     const isPassed = res && res.success && currentEx.validate(queryStr, res);
 
     if (isPassed) {
       moviesState.completedSteps.add(currentEx.id);
       moviesState.wrongSteps.delete(currentEx.id);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1385,7 +1447,7 @@
     } else {
       moviesState.wrongSteps.add(currentEx.id);
       moviesState.completedSteps.delete(currentEx.id);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1407,7 +1469,7 @@
     if (ex.validate()) {
       moviesState.completedSteps.add(id);
       moviesState.wrongSteps.delete(id);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1418,7 +1480,7 @@
     } else {
       moviesState.wrongSteps.add(id);
       moviesState.completedSteps.delete(id);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1442,7 +1504,7 @@
     if (ex.validate()) {
       moviesState.completedSteps.add(stepId);
       moviesState.wrongSteps.delete(stepId);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1457,7 +1519,7 @@
     } else {
       moviesState.wrongSteps.add(stepId);
       moviesState.completedSteps.delete(stepId);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1470,9 +1532,10 @@
     if (!ex) return;
 
     if (ex.validate()) {
+      saveMoviesNotes();
       moviesState.completedSteps.add(stepId);
       moviesState.wrongSteps.delete(stepId);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1483,7 +1546,7 @@
     } else {
       moviesState.wrongSteps.add(stepId);
       moviesState.completedSteps.delete(stepId);
-      persistState();
+      persistState(true);
       renderMoviesHeader();
       renderMoviesLeftPane();
       updateMoviesHomeScreenCardProgress();
@@ -1491,15 +1554,40 @@
     }
   }
 
+  window.reloadMoviesStateFromStorage = function () {
+    loadSavedState();
+    const input = document.getElementById('moviesSqlInput');
+    const savedQuery = moviesState.submittedQueries && moviesState.submittedQueries[String(moviesState.activeStep)];
+    if (input) input.value = typeof savedQuery === 'string' ? savedQuery : '';
+    const overlay = document.getElementById('moviesStartLabOverlay');
+    if (overlay && !moviesState.isLabStarted && moviesState.completedSteps.size === 0 && moviesState.wrongSteps.size === 0) {
+      overlay.style.removeProperty('display');
+      overlay.style.removeProperty('opacity');
+      overlay.style.removeProperty('pointer-events');
+      overlay.classList.remove('hidden');
+    }
+    try {
+      renderMoviesHeader();
+      renderMoviesLeftPane();
+      renderMoviesRightPane();
+      updateMoviesHomeScreenCardProgress();
+      if (typeof window.handleMoviesSQLInput === 'function') {
+        window.handleMoviesSQLInput();
+      }
+    } catch (e) {}
+  };
+
   function retryMoviesLab() {
     moviesState.completedSteps.clear();
     moviesState.wrongSteps.clear();
+    moviesState.submittedQueries = {};
+    moviesState.completedAt = null;
     moviesState.activeStep = 1;
     moviesState.currentQuery = '';
     moviesState.lastQueryResults = null;
     moviesState.activeTab = 'exercises';
     moviesState.isLabStarted = true;
-    persistState();
+    persistState(true);
     renderMoviesHeader();
     renderMoviesLeftPane();
     renderMoviesRightPane();
@@ -1530,7 +1618,10 @@
     const ed = document.getElementById('moviesNotesEditor');
     if (ed) {
       try {
-        localStorage.setItem('asynchronous_01_movies_notes', ed.innerHTML);
+        const store = window.__DA101_STORAGE__;
+        if (store && store.getUid()) {
+          store.setItem('asynchronous_01_movies_notes', ed.innerHTML);
+        }
       } catch (e) {}
     }
   }
@@ -1658,15 +1749,19 @@
 
     const passedCount = moviesState.completedSteps.size;
     const wrongCount = moviesState.wrongSteps.size;
+    const isComplete = (passedCount + wrongCount) >= MOVIES_EXERCISES.length;
 
     const exerciseCardsHtml = MOVIES_EXERCISES.map((ex, idx) => {
       const isPassed = moviesState.completedSteps.has(ex.id);
+      const isWrong = moviesState.wrongSteps.has(ex.id);
       const statusBadge = isPassed
         ? `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✓ PASSED</div>`
-        : `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✕ INCORRECT</div>`;
+        : (isWrong
+          ? `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #be123c; background: #ffe4e6; border: 1px solid #fecdd3; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">✕ INCORRECT</div>`
+          : `<div style="font-family: 'DM Sans', 'Plus Jakarta Sans', sans-serif; font-size: 8.5px; font-weight: 600; letter-spacing: 0.015em; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 9999px; flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px;">— UNANSWERED</div>`);
 
       return `
-      <div style="background: #ffffff; border: 1px solid ${isPassed ? '#e2e8f0' : '#fecdd3'}; border-radius: 6px; padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; min-height: 34px; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+      <div style="background: #ffffff; border: 1px solid ${isPassed ? '#e2e8f0' : (isWrong ? '#fecdd3' : '#e2e8f0')}; border-radius: 6px; padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; min-height: 34px; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: -0.02em; color: #0f172a; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; flex: 1; min-width: 0;">
           <span style="color: #2563eb; font-weight: 800; flex-shrink: 0;">#${String(idx + 1).padStart(2, '0')}</span>
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(ex.title)}</span>
@@ -1686,9 +1781,9 @@
             <h1 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.03em; margin: 0; line-height: 1.2;">Module 4: Successful Movies</h1>
             <div style="font-size: 11px; font-weight: 500; color: #64748b; margin-top: 1px; line-height: 1.6;">Official Laboratory Verification &amp; Competency Assessment Report</div>
           </div>
-          <div style="background: ${passedCount === MOVIES_EXERCISES.length ? '#f0fdf4' : '#fefce8'}; border: 1.5px solid ${passedCount === MOVIES_EXERCISES.length ? '#86efac' : '#fde047'}; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
-            <div style="font-size: 9.5px; font-weight: 800; color: ${passedCount === MOVIES_EXERCISES.length ? '#166534' : '#854d0e'}; text-transform: uppercase;">Module 4 Report</div>
-            <div style="font-size: 11px; font-weight: 900; color: ${passedCount === MOVIES_EXERCISES.length ? '#15803d' : '#a16207'};">${passedCount} / 10 Passed (${wrongCount} Incorrect)</div>
+          <div style="background: ${isComplete ? '#f0fdf4' : '#fefce8'}; border: 1.5px solid ${isComplete ? '#86efac' : '#fde047'}; border-radius: 10px; padding: 5px 12px; text-align: right; flex-shrink: 0;">
+            <div style="font-size: 9.5px; font-weight: 800; color: ${isComplete ? '#166534' : '#854d0e'}; text-transform: uppercase;">STATUS: ${isComplete ? 'COMPLETED' : 'INCOMPLETE'}</div>
+            <div style="font-size: 11px; font-weight: 900; color: ${isComplete ? '#15803d' : '#a16207'};">${passedCount} / 10 Passed (${wrongCount} Incorrect)</div>
           </div>
         </div>
 

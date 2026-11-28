@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
+import {
+  M3_SPRING_DEFAULT_SPATIAL,
+  M3_SPRING_FAST_SPATIAL,
+  M3_TAP_PRESS,
+} from '../utils/m3Motion';
 import {
   Bar,
   BarChart,
@@ -18,16 +24,24 @@ import {
   type CurriculumModuleId,
   type ModuleProgressItem,
 } from '../utils/curriculumProgress';
+import { useAccess } from '../context/AccessContext';
 
 interface ChartTooltipProps {
   active?: boolean;
   payload?: Array<{ payload: ModuleProgressItem }>;
   isDark: boolean;
+  allowedModules: CurriculumModuleId[];
 }
 
-function ProgressTooltip({ active, payload, isDark }: ChartTooltipProps) {
+function ProgressTooltip({
+  active,
+  payload,
+  isDark,
+  allowedModules,
+}: ChartTooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const item = payload[0].payload;
+  const isLocked = allowedModules.length > 0 && !allowedModules.includes(item.id);
 
   return (
     <div
@@ -67,10 +81,10 @@ function ProgressTooltip({ active, payload, isDark }: ChartTooltipProps) {
             fontWeight: 700,
             fontFamily: "'JetBrains Mono', monospace",
             fontVariantNumeric: 'tabular-nums',
-            color: item.accentColor,
+            color: isLocked ? '#94a3b8' : item.accentColor,
           }}
         >
-          {item.percentage}%
+          {isLocked ? 'Locked' : `${item.percentage}%`}
         </span>
       </div>
 
@@ -114,7 +128,7 @@ function ProgressTooltip({ active, payload, isDark }: ChartTooltipProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
           <span>Status</span>
           <span style={{ fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
-            {item.status}
+            {isLocked ? 'Locked by class code' : item.status}
           </span>
         </div>
       </div>
@@ -125,10 +139,12 @@ function ProgressTooltip({ active, payload, isDark }: ChartTooltipProps) {
           paddingTop: '6px',
           borderTop: `1px solid ${isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)'}`,
           fontSize: '10.5px',
-          color: isDark ? '#64748b' : '#64748b',
+          color: '#64748b',
         }}
       >
-        Click bar to inspect module lessons
+        {isLocked
+          ? 'Not included in your current class access code'
+          : 'Click bar to inspect module lessons'}
       </div>
     </div>
   );
@@ -138,27 +154,56 @@ export function CurriculumAnalyticsDashboard() {
   const summary = useCurriculumProgress();
   const activeModuleId = useActiveCurriculumModule();
   const isDark = useIsDarkTheme();
-  const [chartKey, setChartKey] = useState(0);
+  const { allowedModules, isInstructor } = useAccess();
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
 
-  // Re-measure ResponsiveContainer cleanly if user switches from Activities -> Lessons tab
   useEffect(() => {
-    const handleTabChange = (e: Event) => {
-      const detail = (e as CustomEvent<{ tab?: string }>).detail;
-      if (detail?.tab === 'lessons') {
-        window.requestAnimationFrame(() => setChartKey((k) => k + 1));
-      }
+    const el = chartContainerRef.current;
+    if (!el) return;
+
+    const updateSize = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setChartSize((prev) =>
+        prev.width === width && prev.height === height
+          ? prev
+          : { width, height },
+      );
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(el);
+
+    const handleTabChange = () => {
+      window.requestAnimationFrame(updateSize);
     };
     window.addEventListener('portaltabchange', handleTabChange);
-    return () => window.removeEventListener('portaltabchange', handleTabChange);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('portaltabchange', handleTabChange);
+    };
   }, []);
 
+  const isModuleAllowed = (moduleId: CurriculumModuleId) =>
+    isInstructor || allowedModules.includes(moduleId);
+
+  const accessibleModules = summary.modules.filter((m) =>
+    isModuleAllowed(m.id),
+  );
+  const recommendedModule =
+    accessibleModules.find((m) => m.status !== 'Completed') ?? null;
+
   const handleSelectModule = (moduleId: CurriculumModuleId) => {
+    if (!isModuleAllowed(moduleId)) return;
     if (typeof window.selectCurriculumModule === 'function') {
       window.selectCurriculumModule(moduleId);
     }
   };
 
-  const handleOpenLab = (activityKey: string) => {
+  const handleOpenLab = (moduleId: CurriculumModuleId, activityKey: string) => {
+    if (!isModuleAllowed(moduleId)) return;
     if (typeof window.openActivity === 'function') {
       window.openActivity(activityKey);
     } else if (typeof window.switchPortalTab === 'function') {
@@ -173,9 +218,12 @@ export function CurriculumAnalyticsDashboard() {
   const cursorFill = isDark ? 'rgba(59, 130, 246, 0.07)' : 'rgba(59, 130, 246, 0.05)';
 
   return (
-    <section
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={M3_SPRING_DEFAULT_SPATIAL}
       aria-label="Curriculum Progress Analytics"
-      className="da-analytics-dashboard rounded-[24px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#151c2a] overflow-hidden"
+      className="da-analytics-dashboard rounded-[28px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#151c2a] overflow-hidden"
     >
       {/* Top Header & Primary Action */}
       <div className="px-5 md:px-6 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80">
@@ -184,21 +232,29 @@ export function CurriculumAnalyticsDashboard() {
             Curriculum Progress Analytics
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Completion percentage across all 4 modules · Click any bar to jump to its lessons
+            Completion percentage across all 4 modules · Click an unlocked bar to jump to its lessons
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {summary.nextModule ? (
-            <button
+          {recommendedModule ? (
+            <motion.button
               type="button"
-              onClick={() => handleOpenLab(summary.nextModule!.activityKey)}
-              className="da-analytics-cta inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+              whileHover={{ scale: 1.025, y: -1 }}
+              whileTap={M3_TAP_PRESS}
+              transition={M3_SPRING_FAST_SPATIAL}
+              onClick={() =>
+                handleOpenLab(
+                  recommendedModule.id,
+                  recommendedModule.activityKey,
+                )
+              }
+              className="da-analytics-cta inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
             >
               <span>
                 {summary.totalPassed === 0
-                  ? 'Start Module 1 Lab'
-                  : `Continue ${summary.nextModule.moduleNumber}`}
+                  ? `Start ${recommendedModule.moduleNumber} Lab`
+                  : `Continue ${recommendedModule.moduleNumber}`}
               </span>
               <svg
                 width="14"
@@ -214,20 +270,23 @@ export function CurriculumAnalyticsDashboard() {
                 <path d="M5 12h14" />
                 <path d="m12 5 7 7-7 7" />
               </svg>
-            </button>
+            </motion.button>
           ) : (
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.025, y: -1 }}
+              whileTap={M3_TAP_PRESS}
+              transition={M3_SPRING_FAST_SPATIAL}
               onClick={() => window.switchPortalTab?.('activities')}
-              className="da-analytics-cta inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+              className="da-analytics-cta inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
             >
               <span>View Completed Labs</span>
-            </button>
+            </motion.button>
           )}
         </div>
       </div>
 
-      {/* Unboxed KPI Summary Strip (Hairline Separated — No Nested Cards) */}
+      {/* Unboxed KPI Summary Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-200/80 dark:divide-slate-800/80 border-b border-slate-200/80 dark:border-slate-800/80">
         <div className="px-5 md:px-6 py-4 flex items-baseline justify-between sm:block space-y-1">
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -254,7 +313,7 @@ export function CurriculumAnalyticsDashboard() {
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {summary.completedModulesCount === summary.modules.length
                 ? 'All modules complete'
-                : `${summary.modules.length - summary.completedModulesCount} remaining`}
+                : `${accessibleModules.length} unlocked in class`}
             </span>
           </div>
         </div>
@@ -265,11 +324,11 @@ export function CurriculumAnalyticsDashboard() {
           </div>
           <div className="flex items-baseline gap-2 min-w-0">
             <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
-              {summary.nextModule ? summary.nextModule.shortLabel : 'All Modules Complete'}
+              {recommendedModule ? recommendedModule.shortLabel : 'All Assigned Complete'}
             </span>
-            {summary.nextModule && (
+            {recommendedModule && (
               <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 shrink-0">
-                {summary.nextModule.percentage}%
+                {recommendedModule.percentage}%
               </span>
             )}
           </div>
@@ -278,119 +337,145 @@ export function CurriculumAnalyticsDashboard() {
 
       {/* Recharts Module Completion Bar Chart */}
       <div className="px-4 md:px-6 pt-5 pb-3">
-        <div className="w-full h-[236px]" style={{ minWidth: 0 }}>
-          <ResponsiveContainer key={chartKey} width="100%" height="100%">
-            <BarChart
-              data={summary.modules}
-              margin={{ top: 24, right: 16, left: -12, bottom: 4 }}
-              barCategoryGap="24%"
-            >
-              <CartesianGrid
-                strokeDasharray="3 4"
-                vertical={false}
-                stroke={gridStroke}
-              />
-              <XAxis
-                dataKey="chartLabel"
-                axisLine={false}
-                tickLine={false}
-                tick={{
-                  fill: axisTickColor,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  fontFamily: "'DM Sans', 'Plus Jakarta Sans', sans-serif",
-                }}
-                dy={6}
-              />
-              <YAxis
-                domain={[0, 100]}
-                ticks={[0, 25, 50, 75, 100]}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v: number) => `${v}%`}
-                tick={{
-                  fill: axisTickColor,
-                  fontSize: 11,
-                  fontFamily: "'JetBrains Mono', monospace",
-                }}
-                width={48}
-              />
-              <ReferenceLine
-                y={100}
-                stroke={isDark ? 'rgba(52, 211, 153, 0.35)' : 'rgba(16, 185, 129, 0.35)'}
-                strokeDasharray="4 4"
-              />
-              <Tooltip
-                cursor={{ fill: cursorFill, radius: 8 }}
-                content={<ProgressTooltip isDark={isDark} />}
-              />
-              <Bar
-                dataKey="percentage"
-                radius={[8, 8, 4, 4]}
-                maxBarSize={58}
-                background={{ fill: trackFill, radius: 8 }}
-                animationDuration={550}
-                animationEasing="ease-out"
-                onClick={(barData) => {
-                  const modId = (barData as unknown as { id?: CurriculumModuleId })?.id;
-                  if (modId) handleSelectModule(modId);
-                }}
-                style={{ cursor: 'pointer' }}
+        <div
+          ref={chartContainerRef}
+          className="w-full"
+          style={{ width: '100%', height: 236, minWidth: 0 }}
+        >
+          {chartSize.width > 0 && chartSize.height > 0 && (
+            <ResponsiveContainer width="100%" height={236} minWidth={0}>
+              <BarChart
+                data={summary.modules}
+                margin={{ top: 24, right: 16, left: -12, bottom: 4 }}
+                barCategoryGap="24%"
               >
-                {summary.modules.map((entry) => {
-                  const isSelected = entry.id === activeModuleId;
-                  return (
-                    <Cell
-                      key={entry.id}
-                      fill={entry.accentColor}
-                      fillOpacity={isSelected ? 1 : 0.78}
-                      stroke={isSelected ? entry.accentColor : 'none'}
-                      strokeWidth={isSelected ? 1.5 : 0}
-                    />
-                  );
-                })}
-                <LabelList
-                  dataKey="percentage"
-                  position="top"
-                  offset={8}
-                  formatter={(val: unknown) => `${Number(val ?? 0)}%`}
-                  style={{
-                    fill: labelColor,
-                    fontSize: '12px',
-                    fontWeight: 700,
+                <CartesianGrid
+                  strokeDasharray="3 4"
+                  vertical={false}
+                  stroke={gridStroke}
+                />
+                <XAxis
+                  dataKey="chartLabel"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fill: axisTickColor,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: "'DM Sans', 'Plus Jakarta Sans', sans-serif",
+                  }}
+                  dy={6}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  ticks={[0, 25, 50, 75, 100]}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `${v}%`}
+                  tick={{
+                    fill: axisTickColor,
+                    fontSize: 11,
                     fontFamily: "'JetBrains Mono', monospace",
                   }}
+                  width={48}
                 />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <ReferenceLine
+                  y={100}
+                  stroke={isDark ? 'rgba(52, 211, 153, 0.35)' : 'rgba(16, 185, 129, 0.35)'}
+                  strokeDasharray="4 4"
+                />
+                <Tooltip
+                  cursor={{ fill: cursorFill, radius: 8 }}
+                  content={
+                    <ProgressTooltip
+                      isDark={isDark}
+                      allowedModules={
+                        isInstructor
+                          ? summary.modules.map((m) => m.id)
+                          : allowedModules
+                      }
+                    />
+                  }
+                />
+                <Bar
+                  dataKey="percentage"
+                  radius={[8, 8, 4, 4]}
+                  maxBarSize={58}
+                  background={{ fill: trackFill, radius: 8 }}
+                  animationDuration={550}
+                  animationEasing="ease-out"
+                  onClick={(barData) => {
+                    const modId = (barData as unknown as { id?: CurriculumModuleId })?.id;
+                    if (modId) handleSelectModule(modId);
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {summary.modules.map((entry) => {
+                    const unlocked = isModuleAllowed(entry.id);
+                    const isSelected = entry.id === activeModuleId && unlocked;
+                    return (
+                      <Cell
+                        key={entry.id}
+                        fill={unlocked ? entry.accentColor : '#64748b'}
+                        fillOpacity={!unlocked ? 0.28 : isSelected ? 1 : 0.78}
+                        stroke={isSelected ? entry.accentColor : 'none'}
+                        strokeWidth={isSelected ? 1.5 : 0}
+                      />
+                    );
+                  })}
+                  <LabelList
+                    dataKey="percentage"
+                    position="top"
+                    offset={8}
+                    formatter={(val: unknown) => `${Number(val ?? 0)}%`}
+                    style={{
+                      fill: labelColor,
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {summary.totalAttempted === 0 && (
           <p className="text-center text-xs text-slate-500 dark:text-slate-400 pt-1 pb-2">
-            No exercises recorded yet — study a module below or launch a practical lab to watch your completion bars grow.
+            No exercises recorded yet — study an unlocked module below or launch a practical lab to track your progress.
           </p>
         )}
       </div>
 
-      {/* Compact Module Breakdown Strip (Unboxed Hairline Row) */}
+      {/* Compact Module Breakdown Strip */}
       <div className="px-5 md:px-6 py-3.5 border-t border-slate-200/80 dark:border-slate-800/80 grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-2.5">
         {summary.modules.map((mod) => {
-          const isSelected = mod.id === activeModuleId;
+          const unlocked = isModuleAllowed(mod.id);
+          const isSelected = mod.id === activeModuleId && unlocked;
           return (
             <div
               key={mod.id}
-              className="flex items-center justify-between gap-2 text-xs min-w-0"
+              className={`flex items-center justify-between gap-2 text-xs min-w-0 ${
+                unlocked ? '' : 'opacity-55'
+              }`}
             >
               <button
                 type="button"
+                disabled={!unlocked}
                 onClick={() => handleSelectModule(mod.id)}
-                className="flex items-center gap-2 min-w-0 text-left cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                title={`View ${mod.title} lessons`}
+                className="flex items-center gap-2 min-w-0 text-left cursor-pointer disabled:cursor-not-allowed group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                title={
+                  unlocked
+                    ? `View ${mod.title} lessons`
+                    : `${mod.title} is locked by your current class access code`
+                }
               >
                 <span
                   className="w-2.5 h-2.5 rounded-sm shrink-0"
-                  style={{ backgroundColor: mod.accentColor }}
+                  style={{
+                    backgroundColor: unlocked ? mod.accentColor : '#64748b',
+                  }}
                   aria-hidden="true"
                 />
                 <span
@@ -408,19 +493,25 @@ export function CurriculumAnalyticsDashboard() {
                 <span className="font-mono tabular-nums text-[11px] text-slate-500 dark:text-slate-400">
                   {mod.passed}/{mod.total}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => handleOpenLab(mod.activityKey)}
-                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                  aria-label={`Open ${mod.title} practical lab`}
-                >
-                  Lab
-                </button>
+                {unlocked ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenLab(mod.id, mod.activityKey)}
+                    className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                    aria-label={`Open ${mod.title} practical lab`}
+                  >
+                    Lab
+                  </button>
+                ) : (
+                  <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                    Locked
+                  </span>
+                )}
               </div>
             </div>
           );
         })}
       </div>
-    </section>
+    </motion.section>
   );
 }

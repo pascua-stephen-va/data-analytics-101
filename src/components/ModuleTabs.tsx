@@ -4,6 +4,13 @@ import {
   useCurriculumProgress,
   type CurriculumModuleId,
 } from '../utils/curriculumProgress';
+import { useAccess } from '../context/AccessContext';
+import {
+  M3_SPRING_DEFAULT_SPATIAL,
+  M3_SPRING_EXPRESSIVE_BOUNCE,
+  M3_SPRING_FAST_SPATIAL,
+  M3_TAP_PRESS,
+} from '../utils/m3Motion';
 
 const MODULE_ICONS: Record<CurriculumModuleId, string> = {
   excel: 'ph-file-xls',
@@ -15,8 +22,13 @@ const MODULE_ICONS: Record<CurriculumModuleId, string> = {
 export function ModuleTabs() {
   const activeModuleId = useActiveCurriculumModule();
   const summary = useCurriculumProgress();
+  const { allowedModules, isInstructor } = useAccess();
+
+  const isModuleAllowed = (moduleId: CurriculumModuleId) =>
+    isInstructor || allowedModules.includes(moduleId);
 
   const handleSelect = (moduleId: CurriculumModuleId) => {
+    if (!isModuleAllowed(moduleId)) return;
     if (typeof window.selectCurriculumModule === 'function') {
       window.selectCurriculumModule(moduleId);
     }
@@ -27,11 +39,12 @@ export function ModuleTabs() {
       <div
         role="tablist"
         aria-label="Curriculum module selection"
-        className="da-module-tabs-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 p-1.5 rounded-[20px] bg-slate-200/70 dark:bg-[#0e1523] border border-slate-300/75 dark:border-slate-800/90"
+        className="da-module-tabs-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 p-1.5 rounded-[22px] bg-slate-200/70 dark:bg-[#0e1523] border border-slate-300/75 dark:border-slate-800/90"
       >
         {summary.modules.map((mod) => {
-          const isActive = mod.id === activeModuleId;
-          const iconClass = MODULE_ICONS[mod.id];
+          const unlocked = isModuleAllowed(mod.id);
+          const isActive = mod.id === activeModuleId && unlocked;
+          const iconClass = unlocked ? MODULE_ICONS[mod.id] : 'ph-lock-simple';
 
           return (
             <motion.button
@@ -39,24 +52,27 @@ export function ModuleTabs() {
               type="button"
               role="tab"
               aria-selected={isActive}
+              aria-disabled={!unlocked}
+              disabled={!unlocked}
               onClick={() => handleSelect(mod.id)}
-              whileTap={{ scale: 0.985 }}
-              transition={{ duration: 0.14 }}
-              className={`da-module-tab-btn no-ripple relative flex items-center justify-between gap-2.5 px-3.5 py-3 rounded-[14px] text-left cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                isActive ? 'is-active' : ''
-              }`}
+              whileHover={unlocked ? { y: -1 } : undefined}
+              whileTap={unlocked ? M3_TAP_PRESS : undefined}
+              transition={M3_SPRING_FAST_SPATIAL}
+              title={
+                unlocked
+                  ? `Study ${mod.title}`
+                  : `${mod.title} is locked by your current class access code`
+              }
+              className={`da-module-tab-btn no-ripple relative flex items-center justify-between gap-2.5 px-3.5 py-3 rounded-[16px] text-left select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                unlocked ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+              } ${isActive ? 'is-active' : ''}`}
             >
-              {/* Gliding Framer Motion Active Tab Surface */}
+              {/* Gliding Material 3 Expressive Active Tab Surface */}
               {isActive && (
                 <motion.span
                   layoutId="curriculumModuleActiveSurface"
-                  transition={{
-                    type: 'spring',
-                    stiffness: 380,
-                    damping: 32,
-                    mass: 0.85,
-                  }}
-                  className="da-module-tab-active-bg absolute inset-0 rounded-[14px] pointer-events-none"
+                  transition={M3_SPRING_DEFAULT_SPATIAL}
+                  className="da-module-tab-active-bg absolute inset-0 rounded-[16px] pointer-events-none"
                   aria-hidden="true"
                 />
               )}
@@ -65,12 +81,7 @@ export function ModuleTabs() {
               {isActive && (
                 <motion.span
                   layoutId="curriculumModuleActiveRail"
-                  transition={{
-                    type: 'spring',
-                    stiffness: 420,
-                    damping: 34,
-                    mass: 0.8,
-                  }}
+                  transition={M3_SPRING_EXPRESSIVE_BOUNCE}
                   className="absolute bottom-1 left-4 right-4 h-[3px] rounded-full pointer-events-none"
                   style={{ backgroundColor: mod.accentColor }}
                   aria-hidden="true"
@@ -90,7 +101,7 @@ export function ModuleTabs() {
                     {mod.title}
                   </div>
                   <div className="da-module-tab-sub text-[11px] font-medium truncate">
-                    {mod.subtitle}
+                    {unlocked ? mod.subtitle : 'Locked by class code'}
                   </div>
                 </div>
               </div>
@@ -101,7 +112,7 @@ export function ModuleTabs() {
                   color: isActive ? mod.accentColor : undefined,
                 }}
               >
-                {mod.percentage}%
+                {unlocked ? `${mod.percentage}%` : 'Locked'}
               </span>
             </motion.button>
           );
